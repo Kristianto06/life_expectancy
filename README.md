@@ -2,9 +2,9 @@
 
 ## Project Overview 🚀
 
-The **Life Expectancy Analysis** project explores global life expectancy trends, focusing on how socio-economic, healthcare, environmental, and lifestyle factors influence the average lifespan of populations. As a data analyst, the goal is to provide actionable insights to policymakers, researchers, and health organizations, helping them understand the determinants of life expectancy and how different factors correlate with population health outcomes.
+The **Life Expectancy Analysis** project explores global life expectancy trends, focusing in East Asia Pacific and on how Economic, Healthcare Access and Quality, Education and Social Factors, Demographic and Health Outcomes and Environmental Factors influence the average lifespan of populations. As a data analyst, the goal is to provide actionable insights to policymakers, researchers, and health organizations, helping them understand the determinants of life expectancy and how different factors correlate with population health outcomes.
 
-By leveraging various data science techniques, this project aims to identify key drivers of life expectancy and predict future life expectancy trends based on multiple factors.
+By leveraging various data science techniques, this project aims to identify key drivers of life expectancy and predict future trends based on multiple factors.
 
 ## Table of Contents 📑
 
@@ -32,6 +32,7 @@ Life expectancy is a key indicator of a country's overall health and well-being,
 - **Demographic factors**: Age, gender, and population density.
 
 In recent years, life expectancy has been rising in many developed nations but remains a significant challenge in low-income countries. Understanding the correlations between these factors and life expectancy can guide interventions to improve public health.
+
 
 ---
 
