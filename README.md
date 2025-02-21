@@ -2,37 +2,38 @@
 
 ## Project Overview 🚀
 
-The **Life Expectancy Analysis** project explores global life expectancy trends, focusing in East Asia Pacific and on how Economic, Healthcare Access and Quality, Education and Social Factors, Demographic and Health Outcomes and Environmental Factors influence the average lifespan of populations. As a data analyst, the goal is to provide actionable insights to policymakers, researchers, and health organizations, helping them understand the determinants of life expectancy and how different factors correlate with population health outcomes.
+The Life Expectancy Analysis project investigates the factors associated with life expectancy in East Asia and the Pacific region. By focusing on this particular area, we aim to gain valuable insights into the elements that influence life expectancy and guide evidence-based policy decisions.
 
-By leveraging various data science techniques, this project aims to identify key drivers of life expectancy and predict future trends based on multiple factors.
+This project intends to use various data science techniques to identify key drivers of life expectancy and forecast future trends based on multiple factors.
 
-## Table of Contents 📑
+## Problem Statement 📑
 
-- [Project Overview](#project-overview)
-- [Background](#background)
-- [Methodology & Strategy](#methodology--strategy)
-- [Solution](#solution)
-- [Results & Output](#results--output)
-- [Responsibilities & Scope](#responsibilities--scope)
-- [How to Run the Project](#how-to-run-the-project)
-- [Technologies Used](#technologies-used)
-- [Contributing](#contributing)
-- [License](#license)
+How does Life expectancy vary significantly across different countries?
+
+How to understanding the factors that contribute to this variation is crucial for improving public health policies and fostering better healthcare systems?
 
 ---
 
-## Background 📚
+## Objective 📚
 
-Life expectancy is a key indicator of a country's overall health and well-being, often used by policymakers to measure the quality of life and access to healthcare. It is affected by a wide variety of factors, including but not limited to:
+* To explore the dataset to understand the variables and their relationships.
+* To Identify potential factors that may influence life expectancy.
+* Determine the statistical significance of these relationships.
+* Develop predictive models to estimate life expectancy based on the identified factors.
 
-- **Socio-economic factors**: GDP per capita, income inequality, education levels.
-- **Healthcare**: Access to medical facilities, healthcare infrastructure, vaccination rates.
-- **Environmental factors**: Air quality, water availability, pollution levels.
-- **Lifestyle choices**: Diet, exercise habits, smoking rates, alcohol consumption.
-- **Demographic factors**: Age, gender, and population density.
+Intended Audience or Users:
 
-In recent years, life expectancy has been rising in many developed nations but remains a significant challenge in low-income countries. Understanding the correlations between these factors and life expectancy can guide interventions to improve public health.
+* Researchers: Academics and researchers in the fields of public health, epidemiology, and demography.
+* Healthcare Professionals: Doctors, nurses, and public health experts.
+* General Public: Individuals interested in global health and well-being.
 
+Hypotheses:
+
+1. Economic Factors: Countries with higher GDP per capita tend to have higher life expectancies.
+2. Healthcare Access: Countries with better access to healthcare services, including immunization and maternal health care, have higher life expectancies.
+3. Education: Higher levels of education are associated with increased life expectancy.
+4. Environmental Factors: Exposure to pollution and other environmental hazards can negatively impact life expectancy.
+5. Social Factors: Factors like gender equality, social security, and reduced poverty can positively influence life expectancy.
 
 ---
 
@@ -41,11 +42,17 @@ In recent years, life expectancy has been rising in many developed nations but r
 To conduct a comprehensive life expectancy analysis, the following methodology was employed:
 
 ### 1. **Data Collection & Preprocessing**
-   - **Source**: The dataset used for this analysis is sourced from reputable global databases, such as the World Bank and the World Health Organization (WHO), and includes data for multiple countries over several decades.
+   - **Source**: The dataset used for this analysis is sourced from (https://www.kaggle.com/datasets/kiranshahi/life-expectancy-dataset).
    - **Cleaning**: The data was cleaned to remove missing values, handle outliers, and ensure consistency across all features. Categorical data was encoded appropriately, and numerical features were scaled for modeling.
 
+Clone the repository:
+    ```bash
+    
+    ```
+
 ### 2. **Exploratory Data Analysis (EDA)**
-   - The first step involved exploring the dataset visually and statistically to identify trends, patterns, and potential correlations between life expectancy and various socio-economic, healthcare, and environmental factors.
+
+   - The first step involved exploring the dataset visually and statistically to identify trends, patterns, and potential correlations between life expectancy and various variable.
    - Key visualizations such as heatmaps, scatter plots, and correlation matrices were used to uncover the relationships between features.
 
 ### 3. **Feature Engineering**
@@ -113,16 +120,39 @@ The project will focus on global life expectancy but can be adapted to focus on 
 
 To run this project on your local machine:
 
-1. Clone the repository:
+1. Initial Data Inspection:
     ```bash
-    git clone https://github.com/your-username/life-expectancy-analysis.git
-    cd life-expectancy-analysis
+    wdi_data = pd.read_csv('/content/life-expectancy-dataset/data/WDI_csv/WDIData.csv')
+    doctor_data = pd.read_csv('/content/life-expectancy-dataset/data/Medical_doctors.csv')
+    nc_mortality_female = pd.read_csv('/content/life-expectancy-dataset/data/nc_mortality_female/nc_mortality_female.csv', skiprows=4) # Adjust the number of rows to skip as needed
+    nc_mortality_male = pd.read_csv('/content/life-expectancy-dataset/data/nc_mortality_male/nc_mortality_male.csv', skiprows=4) # Adjust the number of rows to skip as needed
+    sucide_female = pd.read_csv('/content/life-expectancy-dataset/data/sucide_female/sucide_female.csv', skiprows=4) # Adjust the number of rows to skip as needed
+    sucide_male = pd.read_csv('/content/life-expectancy-dataset/data/sucide_male/sucide_male.csv', skiprows=4) # Adjust the number of rows to skip as needed
     ```
 
-2. Create and activate a virtual environment (recommended):
+2. Create a dictionary to map original column names to simplified names :
     ```bash
-    python3 -m venv venv
-    source venv/bin/activate  # On Windows: venv\Scripts\activate
+    column_mapping = {
+    'Life expectancy at birth, total (years)': 'Life_Expectancy',
+    'GDP per capita (current US$)': 'GDP_Per_Capita',
+    'GDP (current US$)': 'GDP_Total',
+    'Gini index': 'Gini_Index',
+    'Current health expenditure per capita (current US$)': 'Health_Expenditure_Per_Capita',
+    'Hospital beds (per 1,000 people)': 'Hospital_Beds_Per_1000',
+    'Birth rate, crude (per 1,000 people)': 'Birth_Rate_Per_1000',
+    'Maternal mortality ratio (modeled estimate, per 100,000 live births)': 'Maternal_Mortality_Rate',
+    'Immunization, measles (% of children ages 12-23 months)': 'Measles_Immunization_Rate',
+    'School enrollment, primary (% gross)': 'Primary_School_Enrollment',
+    'School enrollment, secondary (% gross)': 'Secondary_School_Enrollment',
+    'School enrollment, tertiary (% gross)': 'Tertiary_School_Enrollment',
+    'Unemployment, total (% of total labor force)': 'Unemployment_Rate',
+    'Population growth (annual %)': 'Population_Growth_Rate',
+    'PM2.5 air pollution, mean annual exposure (micrograms per cubic meter)': 'PM2_5_Pollution',
+    'Access to electricity (% of population)': 'Access_to_Electricity',
+    'Improved water source (% of population)': 'Improved_Water_Source',
+    'Improved sanitation facilities (% of population)': 'Improved_Sanitation_Facilities'
+      }
+     life_expectancy_data = life_expectancy_data.rename(columns=column_mapping)
     ```
 
 3. Install the required dependencies:
@@ -175,3 +205,188 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 Feel free to reach out with any questions, feedback, or suggestions, or open an issue if you encounter any problems!
+
+
+
+Sure! Here’s a markdown README for your project, based on the structure you provided. I’ve added some emojis to make it more engaging and included appropriate headings, descriptions, and markdown formatting for clarity:
+
+```markdown
+# Life Expectancy Analysis and Prediction 🧬🌍
+
+This project explores datasets related to global life expectancy and its influencing factors, aiming to predict life expectancy based on various socio-economic and health-related factors across different regions, specifically focusing on East Asia and Pacific. The analysis includes data cleaning, preparation, and visualization, followed by predictive modeling using both linear and non-linear methods.
+
+## Project Phases
+
+### MO - Finding The Right Dataset 📂
+To begin, we need to gather datasets that can help address the business problem, focusing on global life expectancy data, socio-economic indicators, and health-related factors.
+
+### M1 - Dataset, User, and Understanding Business Problem 🔍
+In this phase, we define the business problem, identify key users, and fully understand the datasets available. The focus is on understanding what drives life expectancy in various countries, with particular attention to the East Asia & Pacific region.
+
+### M2 - Data Cleaning and Analysis 🧹
+Data cleaning is a critical step to ensure accurate and reliable insights. This includes handling missing data, duplicates, and ensuring that datasets are in the correct format for analysis.
+
+---
+
+## Phase 1: Data Ingestion and Exploration 🚀
+
+### 1. Data Import
+The first step is importing the datasets, ensuring that all required files are available and correctly loaded into the environment.
+
+### 2. Initial Data Inspection
+Here we perform an initial inspection to understand the structure, size, and quality of the datasets.
+
+---
+
+## Phase 2: Data Cleaning and Preparation 🧹
+
+### 1. Check Missing Values 
+Identifying and handling missing data is crucial to ensure the integrity of analysis. This phase includes handling missing values based on their significance.
+
+### 2. Check Duplicate Values
+Duplicates can skew results, so we remove any redundant records from the dataset.
+
+### 3. Prepare WDI Dataset
+We clean the World Development Indicators (WDI) dataset, including handling missing data and irrelevant columns.
+
+### 4. Remove Zero Data from Dataset
+Any data entries with zero values that may distort the analysis are removed.
+
+### 5. Change Data Format (Convert Year Columns to Rows)
+We reshape the data by converting year columns into rows to make it more suitable for analysis.
+
+### 6. Separate Relevant and Irrelevant Columns
+Irrelevant columns are separated from the dataset to ensure that only necessary information is included.
+
+---
+
+### Preparing Datasets
+
+#### 1. Prepare Doctor Dataset 🏥
+We clean the doctor-related data by handling null values and ensuring the dataset is consistent.
+
+#### 2. Prepare NC Mortality Dataset 💀
+We merge male and female mortality data for non-communicable diseases (NC) and simplify the data.
+
+#### 3. Prepare Suicide Dataset 💔
+We merge male and female suicide data and streamline the dataset to be more manageable.
+
+---
+
+## Phase 3: Exploratory Data Analysis (EDA) 🔍
+
+### 1. Set ERD Diagram 🗺️
+Create an Entity-Relationship Diagram (ERD) to visualize relationships between datasets.
+
+### 2. Merge Datasets to Set Life Expectancy Data
+Merge different datasets to get a comprehensive view of the factors influencing life expectancy.
+
+### 3. Choose Region: East Asia & Pacific 🌏
+Focus analysis on the East Asia & Pacific region to narrow the scope of the data.
+
+### 4. Filter Region 🌍
+Filter the dataset to focus on countries within the selected region.
+
+---
+
+### Strategies for Handling Missing Data
+
+#### 1. Handle High Missingness: Variables
+Deal with variables that have high percentages of missing data.
+
+#### 2. Handle High Missingness: Country Name
+Ensure countries with missing country names are addressed appropriately.
+
+#### 3. Rationally Input Missing Values
+Impute missing values based on logical assumptions or statistical methods.
+
+#### 4. Check Duplicate Values
+Perform another round of checking for any remaining duplicates.
+
+---
+
+## M3 - Data Visualization and Insight 📊
+
+### 1. Explore the Distribution of Key Variables
+Use visualizations to understand how key variables like GDP, healthcare expenditure, and education levels correlate with life expectancy.
+
+### 2. Metrics Variant Life Expectancy
+Analyze metrics that impact life expectancy, including socio-economic factors, mortality rates, and healthcare access.
+
+### 3. Pearson's Correlation Coefficient (r)
+Calculate and visualize the correlation between variables and life expectancy.
+
+### 4. Linear Regression
+Build a linear regression model to predict life expectancy based on available features.
+
+### 5. Non-linear Models 🤖
+
+#### Generalized Additive Model (GAM)
+Explore the use of GAM to capture non-linear relationships.
+
+#### Random Forest Model 🌲
+Build a Random Forest model to predict life expectancy using ensemble learning.
+
+### 6. Model Comparison ⚖️
+Compare the performance of linear regression vs. non-linear models using evaluation metrics such as:
+
+- **AIC (Akaike Information Criterion)**
+- **BIC (Bayesian Information Criterion)**
+- **RMSE (Root Mean Squared Error)**
+
+### 7. Descriptive Statistics 📚
+Calculate key descriptive statistics to understand the underlying patterns in the data.
+
+### 8. PCA Components 🧮
+Use Principal Component Analysis (PCA) to reduce the dimensionality and identify the most significant features.
+
+### 9. Parallel Coordinates Plot 🔀
+Visualize multivariate relationships using parallel coordinates.
+
+---
+
+## M4 - Present, Consult, and Pitching 🎤
+
+### 1. Set and Check Variables to Explore the Story
+Refine the story by selecting the most important variables for a compelling narrative.
+
+### 2. Gender Views
+Understand the impact of gender on life expectancy and visualize the difference between male and female life expectancy trends.
+
+### 3. ARIMA Model 📉
+Use the ARIMA model (Autoregressive Integrated Moving Average) for time series forecasting of life expectancy.
+
+### 4. Random Forest Regressor 🌳
+Use Random Forest Regressor to predict life expectancy with a high degree of accuracy.
+
+---
+
+## Installation 🛠️
+
+To run this project, you will need to have Python and the following libraries installed:
+
+```bash
+pip install pandas numpy matplotlib seaborn scikit-learn statsmodels
+```
+
+---
+
+## Contributing 🤝
+
+Feel free to contribute by opening issues or submitting pull requests. Contributions are welcome for improving the analysis, adding new features, or cleaning up the code.
+
+---
+
+## License 📜
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## Acknowledgments 🙏
+
+- Special thanks to the contributors of the datasets used in this project.
+- Thanks to the open-source community for providing essential libraries.
+```
+
+This README includes all the phases, tasks, and technical steps you provided, with some added clarity and structure. Let me know if you need further adjustments!
