@@ -1,15 +1,36 @@
+![image](https://github.com/user-attachments/assets/30144a4d-a0ed-413c-a3fe-744ea125f5e0)
+
+
+
 # Life Expectancy Analysis 🌍
+
+
+![image](https://github.com/user-attachments/assets/cd8f7e94-aaa4-4fc4-8acf-abe47277490a)
+
+
+The chart shows a relatively even distribution of life expectancy across all age groups in Papua New Guinea. This indicates that the proportion of the population reaching old age is roughly the same as the proportion living to younger ages. The average life expectancy in Papua New Guinea is 57 years.
+
+Question :
+Significant Differences:
+Significant difference in life expectancy between Papua New Guinea and Japan. What are the main factors contributing to this striking difference?
+
+Age Distribution:
+In Japan, the largest percentage of the population falls within the 61-80 age group. Why is the proportion of elderly people in Japan much larger than in Papua New Guinea?
+
+Challenges in Papua New Guinea:
+This chart indicates that the life expectancy distribution in Papua New Guinea is relatively even across all age groups. What challenges does Papua New Guinea face in increasing the life expectancy of its population?
+
+
 
 ## Project Overview 🚀
 
+What for :
 The Life Expectancy Analysis project investigates the factors associated with life expectancy in East Asia and the Pacific region. By focusing on this particular area, we aim to gain valuable insights into the elements that influence life expectancy and guide evidence-based policy decisions.
-
 This project intends to use various data science techniques to identify key drivers of life expectancy and forecast future trends based on multiple factors.
 
 ## Problem Statement 📑
 
 How does Life expectancy vary significantly across different countries?
-
 How to understanding the factors that contribute to this variation is crucial for improving public health policies and fostering better healthcare systems?
 
 ---
@@ -22,8 +43,7 @@ How to understanding the factors that contribute to this variation is crucial fo
 * Develop predictive models to estimate life expectancy based on the identified factors.
 
 Intended Audience or Users:
-
-* Researchers: Academics and researchers in the fields of public health, epidemiology, and demography.
+* Researchers: Academics and researchers in the fields of public health, epidemiology, and demography. Data analitics
 * Healthcare Professionals: Doctors, nurses, and public health experts.
 * General Public: Individuals interested in global health and well-being.
 
