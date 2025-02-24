@@ -8,6 +8,15 @@
 ![image](https://github.com/user-attachments/assets/cd8f7e94-aaa4-4fc4-8acf-abe47277490a)
 
 
+```mermaid
+graph TD;
+    A-->B;
+    A-->C;
+    B-->D;
+    C-->D;
+```
+
+
 The chart shows a relatively even distribution of life expectancy across all age groups in Papua New Guinea. This indicates that the proportion of the population reaching old age is roughly the same as the proportion living to younger ages. The average life expectancy in Papua New Guinea is 57 years.
 
 Question :
