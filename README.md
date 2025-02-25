@@ -1,20 +1,9 @@
-![image](https://github.com/user-attachments/assets/30144a4d-a0ed-413c-a3fe-744ea125f5e0)
-
-
 
 # Life Expectancy Analysis 🌍
 
+![image](https://github.com/user-attachments/assets/30144a4d-a0ed-413c-a3fe-744ea125f5e0)
 
 ![image](https://github.com/user-attachments/assets/cd8f7e94-aaa4-4fc4-8acf-abe47277490a)
-
-
-```mermaid
-graph TD;
-    A-->B;
-    A-->C;
-    B-->D;
-    C-->D;
-```
 
 
 The chart shows a relatively even distribution of life expectancy across all age groups in Papua New Guinea. This indicates that the proportion of the population reaching old age is roughly the same as the proportion living to younger ages. The average life expectancy in Papua New Guinea is 57 years.
@@ -34,7 +23,7 @@ This chart indicates that the life expectancy distribution in Papua New Guinea i
 ## Project Overview 🚀
 
 What for :
-The Life Expectancy Analysis project investigates the factors associated with life expectancy in East Asia and the Pacific region. By focusing on this particular area, we aim to gain valuable insights into the elements that influence life expectancy and guide evidence-based policy decisions.
+The Life Expectancy Analysis project investigates the factors associated with life expectancy in East Asia and the Pacific region.
 This project intends to use various data science techniques to identify key drivers of life expectancy and forecast future trends based on multiple factors.
 
 ## Problem Statement 📑
@@ -63,37 +52,6 @@ Hypotheses:
 3. Education: Higher levels of education are associated with increased life expectancy.
 4. Environmental Factors: Exposure to pollution and other environmental hazards can negatively impact life expectancy.
 5. Social Factors: Factors like gender equality, social security, and reduced poverty can positively influence life expectancy.
-
----
-
-## Methodology & Strategy 🔍
-
-To conduct a comprehensive life expectancy analysis, the following methodology was employed:
-
-### 1. **Data Collection & Preprocessing**
-   - **Source**: The dataset used for this analysis is sourced from (https://www.kaggle.com/datasets/kiranshahi/life-expectancy-dataset).
-   - **Cleaning**: The data was cleaned to remove missing values, handle outliers, and ensure consistency across all features. Categorical data was encoded appropriately, and numerical features were scaled for modeling.
-
-Clone the repository:
-    ```bash
-    
-    ```
-
-### 2. **Exploratory Data Analysis (EDA)**
-
-   - The first step involved exploring the dataset visually and statistically to identify trends, patterns, and potential correlations between life expectancy and various variable.
-   - Key visualizations such as heatmaps, scatter plots, and correlation matrices were used to uncover the relationships between features.
-
-### 3. **Feature Engineering**
-   - Derived new features based on domain knowledge (e.g., average healthcare spending per capita, urbanization rates).
-   - Applied transformation techniques such as log transformation on skewed data (e.g., GDP per capita) to improve model performance.
-
-### 4. **Modeling & Predictive Analysis**
-   - Several machine learning models were trained to predict life expectancy:
-     - **Linear Regression**: To model the relationship between life expectancy and predictor variables.
-     - **Random Forest Regression**: To capture non-linear relationships and feature interactions.
-     - **Gradient Boosting (XGBoost)**: To improve predictive accuracy and handle complex relationships in the data.
-   - Hyperparameter tuning was performed using grid search to optimize the models.
 
 ---
 
@@ -126,6 +84,37 @@ The analysis and modeling produced several valuable insights and outcomes:
 These insights are crucial for healthcare organizations, governments, and policymakers to make data-informed decisions to improve the quality of life and longevity of populations.
 
 ---
+
+
+## Methodology & Strategy 🔍
+
+To conduct a comprehensive life expectancy analysis, the following methodology was employed:
+
+### 1. **Data Collection & Preprocessing**
+   - **Source**: The dataset used for this analysis is sourced from (https://www.kaggle.com/datasets/kiranshahi/life-expectancy-dataset).
+   - **Cleaning**: The data was cleaned to remove missing values, handle outliers, and ensure consistency across all features. Categorical data was encoded appropriately, and numerical features were scaled for modeling.
+
+
+
+### 2. **Exploratory Data Analysis (EDA)**
+
+   - The first step involved exploring the dataset visually and statistically to identify trends, patterns, and potential correlations between life expectancy and various variable.
+   - Key visualizations such as heatmaps, scatter plots, and correlation matrices were used to uncover the relationships between features.
+
+### 3. **Feature Engineering**
+   - Derived new features based on domain knowledge (e.g., average healthcare spending per capita, urbanization rates).
+   - Applied transformation techniques such as log transformation on skewed data (e.g., GDP per capita) to improve model performance.
+
+### 4. **Modeling & Predictive Analysis**
+   - Several machine learning models were trained to predict life expectancy:
+     - **Linear Regression**: To model the relationship between life expectancy and predictor variables.
+     - **Random Forest Regression**: To capture non-linear relationships and feature interactions.
+     - **Gradient Boosting (XGBoost)**: To improve predictive accuracy and handle complex relationships in the data.
+   - Hyperparameter tuning was performed using grid search to optimize the models.
+
+---
+
+
 
 ## Responsibilities & Scope 📋
 
@@ -235,168 +224,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 Feel free to reach out with any questions, feedback, or suggestions, or open an issue if you encounter any problems!
 
-
-
-Sure! Here’s a markdown README for your project, based on the structure you provided. I’ve added some emojis to make it more engaging and included appropriate headings, descriptions, and markdown formatting for clarity:
-
-```markdown
-# Life Expectancy Analysis and Prediction 🧬🌍
-
-This project explores datasets related to global life expectancy and its influencing factors, aiming to predict life expectancy based on various socio-economic and health-related factors across different regions, specifically focusing on East Asia and Pacific. The analysis includes data cleaning, preparation, and visualization, followed by predictive modeling using both linear and non-linear methods.
-
-## Project Phases
-
-### MO - Finding The Right Dataset 📂
-To begin, we need to gather datasets that can help address the business problem, focusing on global life expectancy data, socio-economic indicators, and health-related factors.
-
-### M1 - Dataset, User, and Understanding Business Problem 🔍
-In this phase, we define the business problem, identify key users, and fully understand the datasets available. The focus is on understanding what drives life expectancy in various countries, with particular attention to the East Asia & Pacific region.
-
-### M2 - Data Cleaning and Analysis 🧹
-Data cleaning is a critical step to ensure accurate and reliable insights. This includes handling missing data, duplicates, and ensuring that datasets are in the correct format for analysis.
-
----
-
-## Phase 1: Data Ingestion and Exploration 🚀
-
-### 1. Data Import
-The first step is importing the datasets, ensuring that all required files are available and correctly loaded into the environment.
-
-### 2. Initial Data Inspection
-Here we perform an initial inspection to understand the structure, size, and quality of the datasets.
-
----
-
-## Phase 2: Data Cleaning and Preparation 🧹
-
-### 1. Check Missing Values 
-Identifying and handling missing data is crucial to ensure the integrity of analysis. This phase includes handling missing values based on their significance.
-
-### 2. Check Duplicate Values
-Duplicates can skew results, so we remove any redundant records from the dataset.
-
-### 3. Prepare WDI Dataset
-We clean the World Development Indicators (WDI) dataset, including handling missing data and irrelevant columns.
-
-### 4. Remove Zero Data from Dataset
-Any data entries with zero values that may distort the analysis are removed.
-
-### 5. Change Data Format (Convert Year Columns to Rows)
-We reshape the data by converting year columns into rows to make it more suitable for analysis.
-
-### 6. Separate Relevant and Irrelevant Columns
-Irrelevant columns are separated from the dataset to ensure that only necessary information is included.
-
----
-
-### Preparing Datasets
-
-#### 1. Prepare Doctor Dataset 🏥
-We clean the doctor-related data by handling null values and ensuring the dataset is consistent.
-
-#### 2. Prepare NC Mortality Dataset 💀
-We merge male and female mortality data for non-communicable diseases (NC) and simplify the data.
-
-#### 3. Prepare Suicide Dataset 💔
-We merge male and female suicide data and streamline the dataset to be more manageable.
-
----
-
-## Phase 3: Exploratory Data Analysis (EDA) 🔍
-
-### 1. Set ERD Diagram 🗺️
-Create an Entity-Relationship Diagram (ERD) to visualize relationships between datasets.
-
-### 2. Merge Datasets to Set Life Expectancy Data
-Merge different datasets to get a comprehensive view of the factors influencing life expectancy.
-
-### 3. Choose Region: East Asia & Pacific 🌏
-Focus analysis on the East Asia & Pacific region to narrow the scope of the data.
-
-### 4. Filter Region 🌍
-Filter the dataset to focus on countries within the selected region.
-
----
-
-### Strategies for Handling Missing Data
-
-#### 1. Handle High Missingness: Variables
-Deal with variables that have high percentages of missing data.
-
-#### 2. Handle High Missingness: Country Name
-Ensure countries with missing country names are addressed appropriately.
-
-#### 3. Rationally Input Missing Values
-Impute missing values based on logical assumptions or statistical methods.
-
-#### 4. Check Duplicate Values
-Perform another round of checking for any remaining duplicates.
-
----
-
-## M3 - Data Visualization and Insight 📊
-
-### 1. Explore the Distribution of Key Variables
-Use visualizations to understand how key variables like GDP, healthcare expenditure, and education levels correlate with life expectancy.
-
-### 2. Metrics Variant Life Expectancy
-Analyze metrics that impact life expectancy, including socio-economic factors, mortality rates, and healthcare access.
-
-### 3. Pearson's Correlation Coefficient (r)
-Calculate and visualize the correlation between variables and life expectancy.
-
-### 4. Linear Regression
-Build a linear regression model to predict life expectancy based on available features.
-
-### 5. Non-linear Models 🤖
-
-#### Generalized Additive Model (GAM)
-Explore the use of GAM to capture non-linear relationships.
-
-#### Random Forest Model 🌲
-Build a Random Forest model to predict life expectancy using ensemble learning.
-
-### 6. Model Comparison ⚖️
-Compare the performance of linear regression vs. non-linear models using evaluation metrics such as:
-
-- **AIC (Akaike Information Criterion)**
-- **BIC (Bayesian Information Criterion)**
-- **RMSE (Root Mean Squared Error)**
-
-### 7. Descriptive Statistics 📚
-Calculate key descriptive statistics to understand the underlying patterns in the data.
-
-### 8. PCA Components 🧮
-Use Principal Component Analysis (PCA) to reduce the dimensionality and identify the most significant features.
-
-### 9. Parallel Coordinates Plot 🔀
-Visualize multivariate relationships using parallel coordinates.
-
----
-
-## M4 - Present, Consult, and Pitching 🎤
-
-### 1. Set and Check Variables to Explore the Story
-Refine the story by selecting the most important variables for a compelling narrative.
-
-### 2. Gender Views
-Understand the impact of gender on life expectancy and visualize the difference between male and female life expectancy trends.
-
-### 3. ARIMA Model 📉
-Use the ARIMA model (Autoregressive Integrated Moving Average) for time series forecasting of life expectancy.
-
-### 4. Random Forest Regressor 🌳
-Use Random Forest Regressor to predict life expectancy with a high degree of accuracy.
-
----
-
-## Installation 🛠️
-
-To run this project, you will need to have Python and the following libraries installed:
-
-```bash
-pip install pandas numpy matplotlib seaborn scikit-learn statsmodels
-```
 
 ---
 
