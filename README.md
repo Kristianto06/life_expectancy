@@ -92,8 +92,11 @@ To conduct a comprehensive life expectancy analysis, the following methodology w
 
 ### 1. **Data Collection & Preprocessing**
    - **Source**: The dataset used for this analysis is sourced from (https://www.kaggle.com/datasets/kiranshahi/life-expectancy-dataset).
+![Uploading image.png…]()
+
    - **Cleaning**: The data was cleaned to remove missing values, handle outliers, and ensure consistency across all features. Categorical data was encoded appropriately, and numerical features were scaled for modeling.
 
+![image](https://github.com/user-attachments/assets/7036d0ff-185d-4de5-b00c-11c0e5a2085e)
 
 
 ### 2. **Exploratory Data Analysis (EDA)**
