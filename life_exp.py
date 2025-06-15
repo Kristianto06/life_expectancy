@@ -176,7 +176,7 @@ st.markdown("""
 
 # --- Introduction ---
 # Display the main title of the dashboard, dynamically showing the selected region
-st.title(f"🌏 "The Longevity Puzzle: Unlocking the Secrets to a Longer Life in East Asia & Pacific": {st.session_state.selected_region_display}")
+st.title(f"🌏 The Longevity Puzzle: Unlocking the Secrets to a Longer Life in East Asia & Pacific: {st.session_state.selected_region_display}")
 # Markdown for a brief introduction using custom styling
 st.markdown("""
 <div class="intro-box">
