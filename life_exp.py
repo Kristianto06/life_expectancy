@@ -176,13 +176,12 @@ st.markdown("""
 
 # --- Introduction ---
 # Display the main title of the dashboard, dynamically showing the selected region
-st.title(f"🌏 Life Expectancy Dashboard: {st.session_state.selected_region_display}")
+st.title(f"🌏 "The Longevity Puzzle: Unlocking the Secrets to a Longer Life in East Asia & Pacific": {st.session_state.selected_region_display}")
 # Markdown for a brief introduction using custom styling
 st.markdown("""
 <div class="intro-box">
-    <h3>Comprehensive Analysis of Factors Influencing Life Expectancy</h3>
-    <p>This dashboard explores key socioeconomic and health factors affecting life expectancy in various regions.
-    Upload your dataset to begin the analysis.</p>
+    <h3>Uncover What Shapes a Longer Life</h3>
+    <p>This dashboard delves into the critical socioeconomic and health forces that influence life expectancy across diverse regions. Upload your dataset to unlock insights that could drive meaningful change.</p>
 </div>
 """, unsafe_allow_html=True)
 
