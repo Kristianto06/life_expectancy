@@ -4,180 +4,385 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import folium
-from streamlit_folium import st_folium, folium_static # Ensure folium_static is imported
+from streamlit_folium import st_folium
 import re
+from sklearn.linear_model import Ridge, RidgeCV
+from sklearn.model_selection import cross_val_score, KFold
+import colorcet as cc
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.preprocessing import StandardScaler
 from statsmodels.tsa.seasonal import seasonal_decompose
 import matplotlib.pyplot as plt
+import pycountry # Add this import at the top
 
 # --- Session State Initialization ---
-# Initialize session state variables to maintain their values across Streamlit reruns
 if 'selected_region_display' not in st.session_state:
     st.session_state.selected_region_display = "Global & Region-Specific"
 if 'initial_load' not in st.session_state:
     st.session_state.initial_load = False
-# Initialize feature_importance and r2_score for the predictive model tab
 if 'feature_importance' not in st.session_state:
     st.session_state.feature_importance = pd.DataFrame()
 if 'r2_score' not in st.session_state:
     st.session_state.r2_score = None
 
 # --- Set page configuration ---
-# Configure the Streamlit page layout to be wide, set the title and icon
 st.set_page_config(
     layout="wide",
     page_title="Life Expectancy Analysis Dashboard",
-    page_icon="📊"
+    page_icon="  📊  "
 )
 
-# --- Custom CSS for styling ---
-# Apply custom CSS for a dark theme and specific UI element styling
+# --- Custom CSS for styling (updated for dark elegant theme based on example URL) ---
 st.markdown("""
 <style>
-    /* Overall dark theme for the body and main content area */
-    body, .main {
-        background-color: #283747; /* Slightly softer dark blue-grey */
-        color: #EBF5FB; /* Lighter text color for better contrast */
-        font-family: 'Inter', sans-serif; /* Professional font */
+    /* General body/app background */
+    body {
+        background-color: #0E1117; /* Darkest background from Streamlit default dark theme */
+        color: #FAFAFA; /* Default text color, light gray */
     }
-    
-    /* Streamlit widgets styling for a cohesive look */
-    .stSelectbox, .stMultiSelect, .stSlider, .stTextInput {
-        background-color: #34495E; /* Darker background for input fields */
-        border-radius: 8px; /* More rounded corners */
-        border: 1px solid #4A698A; /* Subtle border */
-        color: #EBF5FB; /* Text color */
+
+    /* Main Streamlit container background */
+    .stApp {
+        background-color: #0E1117;
+        color: #FAFAFA;
     }
-    .stSelectbox div[data-baseweb="select"] {
-        background-color: #34495E;
-        border-radius: 8px;
+
+    /* Set overall dark theme for plotly plots */
+    .js-plotly-plot .plotly .modebar {
+        background-color: #1F2228 !important; /* Slightly lighter than app background */
     }
-    .stSelectbox div[data-baseweb="select"] > div:first-child {
-        color: #EBF5FB;
+    .js-plotly-plot .plotly .cursor-pointer {
+        fill: #FAFAFA !important; /* For text within plots */
     }
-    .stMultiSelect div[data-baseweb="tag"] {
-        background-color: #5DADE2 !important; /* Blue tags for selected items */
+
+    /* Styling for the info/success/warning boxes */
+    div[data-testid="stAlert"] {
+        border-radius: 0.5rem;
+        font-weight: bold;
+    }
+    div[data-testid="stAlert"] .st-emotion-cache-v06ywu { /* Specific for success */
+        background-color: #28A745 !important; /* Brighter Green */
         color: white !important;
-        border-radius: 5px;
+        border-radius: 0.5rem;
+        border: none;
+    }
+    div[data-testid="stAlert"] .st-emotion-cache-1jmveo { /* General alert background, used for info/warning */
+        background-color: #212529 !important; /* Dark grey for info/warning */
+        color: #FAFAFA !important;
+        border-radius: 0.5rem;
+        border: none;
+    }
+    div[data-testid="stAlert"] .st-emotion-cache-1y5v8a8 { /* Info alert */
+        background-color: #17A2B8 !important; /* Teal blue */
+        color: white !important;
+    }
+    div[data-testid="stAlert"] .st-emotion-cache-1f1i1k7 { /* Warning alert */
+        background-color: #FFC107 !important; /* Yellow */
+        color: #212529 !important; /* Dark text for warning */
+    }
+     div[data-testid="stAlert"] .st-emotion-cache-gsvt5j p { /* Error alert (if any) */
+        color: white !important;
     }
 
-    /* Styling for Streamlit buttons */
-    .stButton>button {
-        background-color: #3498DB; /* Professional blue */
-        color: white; /* White text */
-        border-radius: 8px; /* More rounded corners */
-        border: none; /* No border */
-        padding: 10px 20px;
-        transition: background-color 0.3s ease; /* Smooth transition for hover */
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); /* Subtle shadow */
-    }
-    .stButton>button:hover {
-        background-color: #2874A6; /* Darker blue on hover */
-    }
-    
-    /* Styling for the introduction box */
+
+    /* Introduction Box */
     .intro-box {
-        background-color:#E8F8F5; /* Very light cyan for a welcoming feel */
-        padding:25px; /* More padding */
-        border-radius:12px; /* More rounded corners */
-        margin-bottom:35px; /* More space below */
-        box-shadow: 0 6px 10px rgba(0,0,0,0.15); /* Stronger, professional shadow */
-        color: #2C3E50; /* Dark text for contrast on light background */
+        background-color: #1F2228; /* Slightly lighter dark grey */
+        padding: 20px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+        color: #FAFAFA;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3); /* Subtle shadow */
+    }
+    .intro-box h3 {
+        color: #FAFAFA;
+        font-size: 1.8rem;
+        margin-bottom: 10px;
+    }
+    .intro-box p {
+        color: #CCCCCC; /* Slightly darker text for body */
+        font-size: 1rem;
+        line-height: 1.6;
     }
 
-    /* Styling for feature display boxes */
-    .feature-box {
-        background-color: #34495E; /* Matches input fields for consistency */
-        color: #EBF5FB; /* Light text */
-        border-radius: 12px; /* More rounded corners */
-        padding: 20px; /* More padding */
-        margin-bottom: 20px; /* More space below */
-        box-shadow: 0 4px 8px rgba(0,0,0,0.2); /* Enhanced shadow */
+    /* Metrics Styling - Targeted for screenshot appearance */
+    div[data-testid="stMetric"] {
+        border-radius: 10px;
+        padding: 15px;
+        margin: 5px;
+        text-align: center;
+        box-shadow: 0 6px 15px rgba(0, 0, 0, 0.4); /* More pronounced shadow */
+        transition: transform 0.2s ease-in-out; /* Add hover effect */
+    }
+    div[data-testid="stMetric"]:hover {
+        transform: translateY(-5px); /* Lift on hover */
     }
 
-    /* Styling for metric display cards - vibrant gradient */
-    .metric-card {
-        background: linear-gradient(135deg, #7D3C98 0%, #2980B9 100%); /* Purple to Blue gradient */
-        color: white; /* White text */
-        border-radius: 12px; /* More rounded corners */
-        padding: 20px; /* More padding */
-        text-align: center; /* Centered text */
-        margin-bottom: 20px; /* More space below */
-        box-shadow: 0 6px 12px rgba(0,0,0,0.25); /* Prominent shadow */
-        transition: transform 0.2s ease-in-out; /* Pop effect on hover */
+    /* Specific colors for metric boxes using nth-child */
+    /* Records - Blue */
+    div[data-testid="stMetric"]:nth-child(1) > div { 
+        background-color: #007BFF !important; /* Bootstrap Blue */
+        color: white !important;
     }
-    .metric-card:hover {
-        transform: translateY(-5px); /* Lift effect */
+    /* Features - Green */
+    div[data-testid="stMetric"]:nth-child(2) > div { 
+        background-color: #28A745 !important; /* Bootstrap Green */
+        color: white !important;
     }
-    .metric-card h3 {
-        color: white; /* Ensure metric titles are white */
+    /* Countries - Orange */
+    div[data-testid="stMetric"]:nth-child(3) > div { 
+        background-color: #FD7E14 !important; /* Bootstrap Orange */
+        color: white !important;
     }
-    .metric-card div[data-testid="stMetricValue"] {
-        color: white !important; /* Ensure metric values are white */
+    div[data-testid="stMetric"] label { /* Metric label */
+        color: white !important;
+        font-size: 1rem;
+        font-weight: normal;
     }
-
-    /* Styling for highlighted sections */
-    .highlight {
-        background-color: #3E546B; /* Darker grey-blue */
-        border-left: 5px solid #5DADE2; /* Brighter blue border */
-        padding: 15px; /* More padding */
-        border-radius: 0 8px 8px 0; /* Slightly more rounded right corners */
-        color: #EBF5FB; /* Light text */
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    div[data-testid="stMetric"] div[data-testid="stMetricValue"] { /* Metric value */
+        color: white !important;
+        font-size: 2.5rem;
+        font-weight: bold;
     }
-    
-    /* Styling for call-to-action boxes */
-    .call-to-action-box {
-        background-color: #5D6D7E; /* Medium blue-grey, professional */
-        padding: 20px; /* More padding */
-        border-radius: 12px; /* More rounded corners */
-        margin-top: 30px; /* More space above */
-        color: #EBF5FB; /* Light text */
-        box-shadow: 0 5px 10px rgba(0,0,0,0.2);
+    div[data-testid="stMetric"] div[data-testid="stMetricDelta"] { /* Metric delta */
+        color: white !important;
+        font-size: 1.2rem;
     }
 
-    /* Styling for the Folium map container */
+    /* Tabs Styling */
+    .stTabs [data-testid="stTab"] {
+        background-color: #1F2228; /* Inactive tab background */
+        color: #AAAAAA; /* Lighter grey for inactive text */
+        border-radius: 8px 8px 0 0; /* Rounded top corners */
+        margin-right: 5px;
+        padding: 12px 25px;
+        font-weight: bold;
+        transition: background-color 0.3s ease, color 0.3s ease;
+    }
+    .stTabs [data-testid="stTab"]:hover {
+        background-color: #2A2E35; /* Slightly lighter on hover */
+        color: #FAFAFA;
+    }
+    .stTabs [data-testid="stTab"][aria-selected="true"] {
+        background-color: #2A2E35; /* Active tab background */
+        color: #FAFAFA; /* White text for active tab */
+        border-bottom: 3px solid #DC3545; /* Red underline for active tab */
+        animation: tab-active-border 0.3s forwards; /* Subtle animation */
+    }
+    @keyframes tab-active-border {
+        from { border-bottom-color: transparent; }
+        to { border-bottom-color: #DC3545; }
+    }
+
+    /* Tab content area background */
+    .stTabs [data-testid="stVerticalBlock"] {
+        background-color: #1F2228; /* Dark grey for tab content */
+        padding: 30px;
+        border-radius: 0 0 10px 10px; /* Rounded bottom corners */
+        box-shadow: 0 6px 15px rgba(0, 0, 0, 0.4);
+    }
+
+    /* Sidebar styling */
+    .st-emotion-cache-vk33wx { /* Sidebar background */
+        background-color: #15181C; /* Slightly different dark for sidebar */
+        color: #FAFAFA;
+        padding: 20px 15px; /* Adjust padding */
+    }
+    .st-emotion-cache-vk33wx .st-emotion-cache-1w0nxu { /* Sidebar header */
+        color: #FAFAFA;
+        font-size: 1.5rem;
+        margin-bottom: 15px;
+        border-bottom: 1px solid #333; /* Subtle separator */
+        padding-bottom: 10px;
+    }
+
+    /* Expander styling */
+    .st-emotion-cache-1evx060 { /* Expander header wrapper */
+        background-color: #2A2E35; /* Darker header for expander */
+        border-radius: 8px;
+        margin-bottom: 10px;
+        overflow: hidden; /* Ensure border-radius applies */
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    }
+    .st-emotion-cache-1evx060 button {
+        color: #FAFAFA; /* Expander icon/text color */
+        font-weight: bold;
+        padding: 15px;
+    }
+    .st-emotion-cache-1evx060 div[data-testid="stExpanderDetails"] {
+        background-color: #1F2228; /* Content background */
+        border-radius: 0 0 8px 8px;
+        padding: 20px;
+        border-top: 1px solid #333;
+    }
+    .st-emotion-cache-1evx060 div[data-testid="stExpanderDetails"] p {
+        color: #CCCCCC; /* Text inside expander details */
+    }
+
+    /* Dataframe styling */
+    .dataframe {
+        background-color: #1F2228; /* Match tab content background */
+        color: #FAFAFA;
+        border-radius: 8px;
+        overflow: hidden; /* Ensures rounded corners are visible */
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+    }
+    .dataframe th {
+        background-color: #2A2E35; /* Darker header */
+        color: #FAFAFA;
+        padding: 12px 15px;
+        border-bottom: 1px solid #444;
+        font-weight: bold;
+    }
+    .dataframe td {
+        color: #FAFAFA;
+        padding: 10px 15px;
+        border-bottom: 1px solid #2A2E35; /* Subtle row separator */
+    }
+    .dataframe tr:nth-child(even) {
+        background-color: #212529; /* Slightly different for even rows */
+    }
+    .dataframe tr:hover {
+        background-color: #2A2E35; /* Hover effect for rows */
+    }
+
+    /* Input widgets (multiselect, selectbox, slider) */
+    div[data-testid="stMultiSelect"] > div > div:first-child,
+    div[data-testid="stSelectbox"] > div > div:first-child,
+    div[data-testid="stSlider"] .st-emotion-cache-1ux495f {
+        background-color: #2A2E35; /* Dark background for inputs */
+        border: 1px solid #444;
+        border-radius: 8px;
+        color: #FAFAFA;
+        padding: 5px 10px;
+        box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.2);
+    }
+    div[data-testid="stMultiSelect"] input,
+    div[data-testid="stSelectbox"] input {
+        color: #FAFAFA;
+        background-color: transparent; /* Ensure input text color is visible */
+    }
+    div[data-testid="stMultiSelect"] .st-emotion-cache-1gx59c3, /* Placeholder/selected items */
+    div[data-testid="stSelectbox"] .st-emotion-cache-1gx59c3 {
+        color: #FAFAFA;
+    }
+    /* Options in dropdowns */
+    .st-emotion-cache-1xarl3l { /* Dropdown menu background */
+        background-color: #2A2E35;
+        border: 1px solid #444;
+        border-radius: 8px;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+    }
+    .st-emotion-cache-1xarl3l div[role="option"] {
+        color: #FAFAFA;
+        padding: 8px 12px;
+    }
+    .st-emotion-cache-1xarl3l div[role="option"]:hover,
+    .st-emotion-cache-1xarl3l div[aria-selected="true"] {
+        background-color: #007BFF; /* Highlight on hover/selected */
+        color: white;
+    }
+    /* Slider specific styling */
+    .stSlider .st-emotion-cache-1f81tsl { /* Slider track */
+        background-color: #444;
+    }
+    .stSlider .st-emotion-cache-1f81tsl > div { /* Slider fill */
+        background-color: #007BFF;
+    }
+    .stSlider .st-emotion-cache-17l1x26 { /* Slider thumb */
+        background-color: #007BFF;
+        border: 2px solid #FAFAFA;
+    }
+
+
+    /* Headers and titles */
+    h1, h2, h3, h4, h5, h6 {
+        color: #FAFAFA; /* White for all headers */
+    }
+
+    /* Markdown text */
+    p {
+        color: #CCCCCC; /* Light gray for general text */
+    }
+
+    /* Plotly container background */
+    .stPlotlyChart {
+        background-color: #1F2228; /* Match tab content/dataframe background */
+        border-radius: 10px;
+        padding: 15px;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+    }
+
+    /* Matplotlib plot container */
+    div[data-testid="stFigure"] {
+        background-color: #1F2228;
+        border-radius: 10px;
+        padding: 15px;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+    }
+
+    /* Streamlit components specific for the screenshot */
+    div[data-testid="stVerticalBlock"] div[data-testid="stVerticalBlock"] {
+        background-color: transparent !important; /* To prevent nested blocks from having colored backgrounds */
+    }
+
+    /* Folium map container */
     .folium-map {
-        border-radius: 12px; /* More rounded corners */
-        overflow: hidden; /* Hide overflow to respect border-radius */
-        box-shadow: 0 6px 12px rgba(0,0,0,0.25); /* Prominent shadow */
-        margin-bottom: 25px; /* More space below */
+        border-radius: 10px;
+        overflow: hidden;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
     }
 
-    /* NEW: Styling for the Streamlit tabs to make them bigger and more prominent */
-    div[data-testid="stTabs"] button {
-        font-size: 1.3em; /* Make text even bigger */
-        padding: 18px 35px; /* Increase padding for a larger touch target */
-        margin: 7px; /* Add some margin between tabs */
-        border-radius: 12px; /* Keep consistent rounded corners */
-        background-color: #3E546B; /* Slightly lighter dark blue for tab background */
-        color: #EBF5FB; /* Light text color */
-        border: 1px solid #5DADE2; /* A subtle border to define them */
-        transition: all 0.3s ease;
-    }
-    div[data-testid="stTabs"] button:hover {
-        background-color: #5DADE2; /* Highlight on hover */
-        color: #2C3E50; /* Darker text on hover for contrast */
+    /* Specific CSS for `st.button` for a more elegant look */
+    .st-emotion-cache-19p3v54 { /* This targets the button element's wrapper */
+        background-color: #007BFF; /* Bootstrap Blue for buttons */
+        color: white;
+        border-radius: 8px;
+        border: none;
+        padding: 10px 20px;
+        font-weight: bold;
+        cursor: pointer;
+        transition: background-color 0.3s ease, transform 0.2s ease;
         box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
     }
-    div[data-testid="stTabs"] button[aria-selected="true"] {
-        background-color: #3498DB; /* Professional blue for selected tab */
-        color: white;
-        border: 1px solid #3498DB;
-        font-weight: bold; /* Make selected tab text bold */
-        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+    .st-emotion-cache-19p3v54:hover {
+        background-color: #0056B3; /* Darker blue on hover */
+        transform: translateY(-2px); /* Slight lift on hover */
     }
 
+    /* For dataframes (more specific targets for clearer styling) */
+    .st-emotion-cache-1mmp0p3 thead th { /* Table header */
+        background-color: #2A2E35;
+        color: #FAFAFA;
+        border-bottom: 1px solid #444;
+        font-size: 0.95rem;
+    }
+    .st-emotion-cache-1mmp0p3 tbody tr { /* Table rows */
+        background-color: #1F2228;
+        color: #FAFAFA;
+    }
+    .st-emotion-cache-1mmp0p3 tbody tr:nth-child(even) {
+        background-color: #212529; /* Alternate row color */
+    }
+    .st-emotion-cache-1mmp0p3 tbody tr:hover {
+        background-color: #2A2E35; /* Hover effect for rows */
+    }
+
+    /* CSS for parallel coordinates */
+    .parcoords > svg > g > g.tick > text {
+        fill: #FAFAFA !important; /* White text for ticks */
+        font-size: 12px !important;
+    }
+    .parcoords > svg > g > g.tick > line {
+        stroke: #007BFF !important; /* Blue lines for ticks */
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # --- Introduction ---
-# Display the main title of the dashboard, dynamically showing the selected region
-st.title(f"🌏 The Longevity Puzzle: Unlocking the Secrets to a Longer Life in East Asia & Pacific: {st.session_state.selected_region_display}")
-# Markdown for a brief introduction using custom styling
+st.title(f"  🌏   The Longevity Puzzle: Unlocking the Secrets to a Longer Life in East Asia & Pacific: {st.session_state.selected_region_display}")
 st.markdown("""
 <div class="intro-box">
     <h3>Uncover What Shapes a Longer Life</h3>
@@ -186,24 +391,17 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- Load Data ---
-# Decorator to cache data loading, so it only runs when the file changes
 @st.cache_data
 def load_data(uploaded_file):
-    """
-    Loads data from an uploaded CSV or XLSX file and cleans column names.
-    """
     try:
-        # Read the file based on its extension
         if uploaded_file.name.endswith('.csv'):
             df = pd.read_csv(uploaded_file)
         elif uploaded_file.name.endswith('.xlsx'):
             df = pd.read_excel(uploaded_file)
         else:
-            # Display an error for unsupported file types
             st.error("Unsupported file type. Please upload a CSV or XLSX file.")
             return None
         
-        # Clean column names: strip spaces, convert to lowercase, replace special chars with underscores
         df.columns = (
             df.columns
             .astype(str)
@@ -214,292 +412,206 @@ def load_data(uploaded_file):
         )
         return df
     except Exception as e:
-        # Catch and display any errors during data loading
         st.error(f"Error loading data: {e}")
         return None
 
-# File uploader widget in the sidebar
 uploaded_file = st.sidebar.file_uploader("Upload Life Expectancy Data (CSV/XLSX)", type=["csv", "xlsx"])
-df = None # Initialize DataFrame to None
-
-# Process uploaded file if available
+df = None
 if uploaded_file is not None:
-    with st.spinner('Analyzing data...'): # Show a spinner while data is being processed
+    with st.spinner('Analyzing data...'):
         df = load_data(uploaded_file)
         if df is not None:
-            # Define required columns for the analysis
             REQUIRED_COLUMNS = ['life_expectancy', 'country_name', 'year']
-            # Check for missing required columns
             missing = [col for col in REQUIRED_COLUMNS if col not in df.columns]
             if missing:
                 st.error(f"Missing required columns for analysis: {', '.join(missing)}. Please upload a dataset containing these columns.")
                 st.stop() 
-            st.success("✅ Data loaded successfully!")
-
-            # Display key metrics about the loaded data
-            cols = st.columns(3)
-            # Apply metric card styling
+            st.success("  ✅   Data loaded successfully!")
+            
+            # Display metrics using Streamlit's native metric component
+            cols = st.columns(4)
             with cols[0]:
-                st.markdown(
-                    f'''
-                    <div class="metric-card" style="background:#3498db; color:white; display: flex; align-items: center; justify-content: center; padding:10px 12px;">
-                        <span style="font-size:1.5em; margin-right: 12px;">📄</span>
-                        <div style="text-align:left;">
-                            <h4 style="margin:0; font-size:1em;">Records</h4>
-                            <span style="margin:0; font-size:2.2em; font-weight:bold; line-height:1;">{df.shape[0]}</span>
-                        </div>
-                    </div>
-                    ''',
-                    unsafe_allow_html=True
-                )
+                if 'life_expectancy' in df.columns:
+                    st.metric("Avg Life Expectancy", f"{df['life_expectancy'].mean():.1f} yrs")
             with cols[1]:
-                st.markdown(
-                    f'''
-                    <div class="metric-card" style="background:#2ecc71; color:white; display: flex; align-items: center; justify-content: center; padding:10px 12px;">
-                        <span style="font-size:1.5em; margin-right: 12px;">🧬</span>
-                        <div style="text-align:left;">
-                            <h4 style="margin:0; font-size:1em;">Features</h4>
-                            <span style="margin:0; font-size:2.2em; font-weight:bold; line-height:1;">{df.shape[1]}</span>
-                        </div>
-                    </div>
-                    ''',
-                    unsafe_allow_html=True
-                )
+                if 'gdp_per_capita' in df.columns:
+                    st.metric("Avg GDP per Capita", f"${df['gdp_per_capita'].mean():,.0f}")
             with cols[2]:
-                st.markdown(
-                    f'''
-                    <div class="metric-card" style="background:#e67e22; color:white; display: flex; align-items: center; justify-content: center; padding:10px 12px;">
-                        <span style="font-size:1.5em; margin-right: 12px;">🌍</span>
-                        <div style="text-align:left;">
-                            <h4 style="margin:0; font-size:1em;">Countries</h4>
-                            <span style="margin:0; font-size:2.2em; font-weight:bold; line-height:1;">{df["country_name"].nunique()}</span>
-                        </div>
-                    </div>
-                    ''',
-                    unsafe_allow_html=True
-                )
-            st.session_state['initial_load'] = True # Set flag for initial load success
+                if 'health_expenditure_per_capita' in df.columns:
+                    st.metric("Healthcare Expenditure", f"${df['health_expenditure_per_capita'].mean():,.0f}")
+            with cols[3]:
+                if 'school_enrollment_combined' in df.columns:
+                    st.metric("School Enrollment", f"{df['school_enrollment_combined'].mean():.1f}%")
+            
+            st.session_state['initial_load'] = True
         else:
             st.info("Uploaded file could not be processed. Please check the file format or its content.")
 else:
-    # Prompt user to upload data if no file is uploaded yet
     if 'initial_load' not in st.session_state or not st.session_state.initial_load:
         st.info("Please upload a dataset to begin analysis.")
 
-# Initialize filtered_df as an empty DataFrame with the original columns if df is loaded, otherwise just empty
-filtered_df = pd.DataFrame(columns=df.columns) if df is not None else pd.DataFrame() 
-selected_countries = [] # Initialize selected countries list
-
-# Only proceed with analysis if a DataFrame is loaded
+filtered_df = pd.DataFrame(columns=df.columns) if df is not None else pd.DataFrame()
+selected_countries = []
 if df is not None:
     # --- Data Processing ---
-    # Convert 'life_expectancy' to numeric, coercing errors to NaN
     if 'life_expectancy' in df.columns:
         df['life_expectancy'] = pd.to_numeric(df['life_expectancy'], errors='coerce')
-
-    # Fill missing numerical values with their median
     num_cols = df.select_dtypes(include=['number']).columns
     for col in num_cols:
         if df[col].isnull().any():
             df[col] = df[col].fillna(df[col].median())
-
-    # Drop rows where 'country_name' is missing
     df.dropna(subset=['country_name'], inplace=True)
 
     # --- Sidebar Filters ---
     st.sidebar.header("Data Filters")
-
     years = sorted(df['year'].unique())
-    selected_years = [] # Default to empty
+    selected_years = []
     if len(years) > 0:
         selected_years = st.sidebar.multiselect(
             "Select Year(s)",
             years,
-            default=[] # Set default to empty list as per request
+            default=[]
         )
     else:
         st.sidebar.warning("No year data available")
         
-    temp_df = df.copy() # Start with a copy of the full DataFrame for filtering
-
-    # Apply year filter. If no years are selected, make temp_df empty.
+    temp_df = df.copy()
     if selected_years:
         temp_df = temp_df[temp_df['year'].isin(selected_years)]
-    elif 'year' in df.columns and len(years) > 0: # Years exist in original df but none selected
-        temp_df = pd.DataFrame(columns=df.columns) # Create an empty DataFrame with original columns to avoid KeyError later
+    elif 'year' in df.columns and len(years) > 0:
+        temp_df = pd.DataFrame(columns=df.columns)
         st.sidebar.info("Select at least one year to filter data.")
 
     # Region filter
-    if 'region' in df.columns: # Check if original df has 'region' column
-        if not temp_df.empty and 'region' in temp_df.columns: # If temp_df is not empty and has 'region'
+    if 'region' in df.columns:
+        if not temp_df.empty and 'region' in temp_df.columns:
             regions = sorted(temp_df['region'].unique().tolist())
             selected_region = st.sidebar.selectbox("Select Region", ['All'] + regions)
             st.session_state.selected_region_display = selected_region
             if selected_region != 'All':
                 temp_df = temp_df[temp_df['region'] == selected_region]
         else:
-            # If temp_df is empty or lacks 'region' (e.g., due to year filter)
-            # still offer 'All' but set display info.
-            selected_region = st.sidebar.selectbox("Select Region", ['All']) # Still show 'All' option
+            selected_region = st.sidebar.selectbox("Select Region", ['All'])
             st.session_state.selected_region_display = "Global (No regional data for current selection)"
             st.sidebar.info("No regional data available for the current year(s) selection.")
-    else: # Original df did not have region column
+    else:
         st.sidebar.info("Region column not found for region filtering.")
         st.session_state.selected_region_display = "Global (Region column missing)"
 
-
     # Country filter
     all_countries = []
-    # Only populate all_countries if temp_df is not empty and has 'country_name' column
     if not temp_df.empty and 'country_name' in temp_df.columns:
         all_countries = sorted(temp_df['country_name'].unique().tolist())
     
     selected_countries = st.sidebar.multiselect(
         "Select Countries",
         all_countries,
-        default=[] # Always start empty
+        default=[]
     )
-
-    # Apply final country filter to get filtered_df
-    # filtered_df should be non-empty only if countries are selected and data exists in temp_df
     if selected_countries and not temp_df.empty and 'country_name' in temp_df.columns:
         filtered_df = temp_df[temp_df['country_name'].isin(selected_countries)].copy()
     else:
-        # If no countries selected, or temp_df is empty, or 'country_name' is missing,
-        # filtered_df should be an empty DataFrame.
-        filtered_df = pd.DataFrame(columns=df.columns) # Use df's columns for consistency
+        filtered_df = pd.DataFrame(columns=df.columns)
 
-    # Final check for 'life_expectancy' column in the filtered data.
-    # This check is now less critical as filtered_df can be explicitly empty due to filters.
-    if 'life_expectancy' not in filtered_df.columns and not filtered_df.empty: # Only raise if df is not empty
+    if 'life_expectancy' not in filtered_df.columns and not filtered_df.empty:
         st.error("The 'life_expectancy' column is missing in your filtered dataset. Please ensure it is present and numeric.")
-        filtered_df = pd.DataFrame(columns=df.columns) # Ensure filtered_df is empty to prevent further errors
+        filtered_df = pd.DataFrame(columns=df.columns)
+    num_cols_filtered = filtered_df.select_dtypes(include=['number']).columns if not filtered_df.empty else pd.Index([])
 
     # --- Conditional Display of Tabs based on filtered_df content ---
     if not filtered_df.empty:
-        # Get numerical columns from the filtered DataFrame (re-evaluate as filtered_df might change)
-        num_cols_filtered = filtered_df.select_dtypes(include=['number']).columns
-
-        # --- Tabs for Analysis Sections ---
         tab1, tab2, tab3, tab4, tab5 = st.tabs([
-            "📊 Overview",
-            "📈 Relationships",
-            "🗺️ Geographic",
-            "🔍 Deep Analysis",
-            "💡 Recommendations"
+            "  📊   Overview",
+            "  📈   Relationships",
+            "  🗺️   Geographic",
+            "  🔍   Deep Analysis",
+            "  💡   Recommendations"
         ])
 
-        with tab1:  # Overview Tab
+        with tab1:
             st.header("Data Overview")
             cols = st.columns(4)
-            # Display key metrics using Streamlit's metric widget
-            # Apply metric card styling to these as well for consistency
             with cols[0]:
                 if 'life_expectancy' in num_cols_filtered:
-                    st.markdown(f'<div class="metric-card"><h3>Avg Life Expectancy</h3><h1>{filtered_df["life_expectancy"].mean():.1f} yrs</h1></div>', unsafe_allow_html=True)
-                else:
-                    st.markdown(f'<div class="metric-card"><h3>Avg Life Expectancy</h3><p>N/A</p></div>', unsafe_allow_html=True)
+                    st.metric("Avg Life Expectancy", f"{filtered_df['life_expectancy'].mean():.1f} yrs")
             with cols[1]:
                 if 'gdp_per_capita' in num_cols_filtered:
-                    st.markdown(f'<div class="metric-card"><h3>Avg GDP per Capita</h3><h1>${filtered_df["gdp_per_capita"].mean():,.0f}</h1></div>', unsafe_allow_html=True)
-                else:
-                    st.markdown(f'<div class="metric-card"><h3>Avg GDP per Capita</h3><p>N/A</p></div>', unsafe_allow_html=True)
+                    st.metric("Avg GDP per Capita", f"${filtered_df['gdp_per_capita'].mean():,.0f}")
             with cols[2]:
                 if 'health_expenditure_per_capita' in num_cols_filtered:
-                    st.markdown(f'<div class="metric-card"><h3>Healthcare Expenditure</h3><h1>${filtered_df["health_expenditure_per_capita"].mean():,.0f}</h1></div>', unsafe_allow_html=True)
-                else:
-                    st.markdown(f'<div class="metric-card"><h3>Healthcare Exp.</h3><p>N/A</p></div>', unsafe_allow_html=True)
+                    st.metric("Healthcare Expenditure", f"${filtered_df['health_expenditure_per_capita'].mean():,.0f}")
             with cols[3]:
                 if 'school_enrollment_combined' in num_cols_filtered:
-                    st.markdown(f'<div class="metric-card"><h3>School Enrollment</h3><h1>{filtered_df["school_enrollment_combined"].mean():.1f}%</h1></div>', unsafe_allow_html=True)
-                else:
-                    st.markdown(f'<div class="metric-card"><h3>School Enrollment</h3><p>N/A</p></div>', unsafe_allow_html=True)
+                    st.metric("School Enrollment", f"{filtered_df['school_enrollment_combined'].mean():.1f}%")
             
-            # Expandable section for summary statistics
-            with st.expander("📋 Summary Statistics"):
+            with st.expander("  📋   Summary Statistics"):
                 st.write(filtered_df.describe())
 
-            # Time Series Decomposition
             if 'year' in filtered_df.columns and 'life_expectancy' in filtered_df.columns:
                 st.subheader("Life Expectancy Trend Analysis")
                 if len(filtered_df['country_name'].unique()) == 1:
                     country = filtered_df['country_name'].iloc[0]
-                    # Filter data for the single selected country across all years to show trend
                     country_time_series_df = df[df['country_name'] == country].set_index('year')['life_expectancy'].sort_index()
-
-                    if len(country_time_series_df) > 2: # Requires at least 3 points for decomposition
-                        # Set a professional Matplotlib style
-                        plt.style.use('seaborn-v0_8-darkgrid') # 'seaborn-darkgrid' for a clean, professional look
-                        
-                        decomposition = seasonal_decompose(country_time_series_df, model='additive', period=1)
-                        
-                        # Plot trend, seasonality, and residuals with improved styling
-                        # Increased figsize for bigger charts
+                    if len(country_time_series_df) > 2:
+                        plt.style.use('seaborn-v0_8-darkgrid')
+                        decomposition = seasonal_decompose(country_time_series_df, model='additive', period=1) # Adjust period as needed
                         fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(14, 12), sharex=True)
-                        
-                        # Set background color for the figure and axes
-                        fig.patch.set_facecolor('#283747') # Dark background for the entire figure
-                        ax1.set_facecolor('#34495E') # Darker background for each subplot
-                        ax2.set_facecolor('#34495E')
-                        ax3.set_facecolor('#34495E')
-
-                        # Trend plot
-                        ax1.plot(decomposition.trend, color='#5DADE2', linewidth=2) # Lighter blue line for trend
-                        ax1.set_title('Trend Component', fontsize=16, color='#EBF5FB') # Bigger title
-                        ax1.set_ylabel('Life Expectancy', fontsize=12, color='#EBF5FB')
-                        ax1.tick_params(axis='x', colors='#EBF5FB')
-                        ax1.tick_params(axis='y', colors='#EBF5FB')
-                        ax1.grid(True, linestyle='--', alpha=0.5, color='#7F8C8D') # Softer grid lines
-                        
-                        # Seasonality plot
-                        ax2.plot(decomposition.seasonal, color='#82E0AA', linewidth=1.5) # Lighter green line for seasonality
-                        ax2.set_title('Seasonal Component', fontsize=16, color='#EBF5FB')
-                        ax2.set_ylabel('Seasonality', fontsize=12, color='#EBF5FB')
-                        ax2.tick_params(axis='x', colors='#EBF5FB')
-                        ax2.tick_params(axis='y', colors='#EBF5FB')
-                        ax2.grid(True, linestyle='--', alpha=0.5, color='#7F8C8D') # Softer grid lines
-
-                        # Residuals plot
-                        ax3.plot(decomposition.resid, color='#F5B7B1', linewidth=1) # Lighter red line for residuals
-                        ax3.set_title('Residuals Component', fontsize=16, color='#EBF5FB')
-                        ax3.set_xlabel('Year', fontsize=12, color='#EBF5FB')
-                        ax3.set_ylabel('Residual', fontsize=12, color='#EBF5FB')
-                        ax3.tick_params(axis='x', colors='#EBF5FB')
-                        ax3.tick_params(axis='y', colors='#EBF5FB')
-                        ax3.grid(True, linestyle='--', alpha=0.5, color='#7F8C8D') # Softer grid lines
-                        
-                        fig.suptitle(f'Time Series Decomposition for {country.title()} Life Expectancy', fontsize=20, color='#EBF5FB') # Bigger main title
-                        plt.tight_layout(rect=[0, 0.03, 1, 0.95]) # Adjust layout to prevent title overlap
+                        fig.patch.set_facecolor('#1F2228') # Consistent dark background for Matplotlib figure
+                        ax1.set_facecolor('#212529') # Consistent dark background for Matplotlib axes
+                        ax2.set_facecolor('#212529')
+                        ax3.set_facecolor('#212529')
+                        ax1.plot(decomposition.trend, color='#007BFF', linewidth=2) # Consistent blue line
+                        ax1.set_title('Trend Component', fontsize=16, color='#FAFAFA')
+                        ax1.set_ylabel('Life Expectancy', fontsize=12, color='#FAFAFA')
+                        ax1.tick_params(axis='x', colors='#FAFAFA')
+                        ax1.tick_params(axis='y', colors='#FAFAFA')
+                        ax1.grid(True, linestyle='--', alpha=0.5, color='#6C757D') # Softer grid lines
+                        ax2.plot(decomposition.seasonal, color='#28A745', linewidth=1.5) # Consistent green line
+                        ax2.set_title('Seasonal Component', fontsize=16, color='#FAFAFA')
+                        ax2.set_ylabel('Seasonality', fontsize=12, color='#FAFAFA')
+                        ax2.tick_params(axis='x', colors='#FAFAFA')
+                        ax2.tick_params(axis='y', colors='#FAFAFA')
+                        ax2.grid(True, linestyle='--', alpha=0.5, color='#6C757D')
+                        ax3.plot(decomposition.resid, color='#FD7E14', linewidth=1) # Consistent orange line
+                        ax3.set_title('Residuals Component', fontsize=16, color='#FAFAFA')
+                        ax3.set_xlabel('Year', fontsize=12, color='#FAFAFA')
+                        ax3.set_ylabel('Residual', fontsize=12, color='#FAFAFA')
+                        ax3.tick_params(axis='x', colors='#FAFAFA')
+                        ax3.tick_params(axis='y', colors='#FAFAFA')
+                        ax3.grid(True, linestyle='--', alpha=0.5, color='#6C757D')
+                        fig.suptitle(f'Time Series Decomposition for {country.title()} Life Expectancy', fontsize=20, color='#FAFAFA')
+                        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
                         st.pyplot(fig)
-                        plt.close(fig) # Close the figure to free memory
-                        
+                        plt.close(fig)
                         st.info("""
-                        **Note on Seasonal and Residual Plots:**
-                        If the 'Seasonal Component' and 'Residuals Component' plots appear flat, it often means the `period` parameter in the `seasonal_decompose` function is set to `1`. For yearly data, setting `period=1` implies no within-year seasonality, thus these components will reflect this assumption. If you expect a longer-term seasonal cycle (e.g., a cycle spanning multiple years), you would need to adjust the `period` parameter to that cycle's length.
+                        **Notes on Seasonal and Residual Plots:**
+                        If the 'Seasonal Component' and 'Residual Component' plots appear flat, this often means the `period` parameter in the `seasonal_decompose` function is set to `1`. For annual data, setting `period=1` implies no seasonality within one year, so these components will reflect this assumption. If you expect longer-term seasonal cycles (e.g., cycles spanning several years), you need to adjust the `period` parameter to the length of that cycle.
+                        
+                        **Interpreting the Seasonal Component:**
+                        * **Flat Line:** Indicates no detectable repeating patterns within the specified `period`. For annual data with `period=1`, this is expected as there's no intra-year seasonality.
+                        * **Fluctuating Pattern:** If `period` is set appropriately (e.g., if you had monthly data and `period=12`), a fluctuating line would reveal consistent, repeating patterns or cycles in life expectancy that occur regularly over that period. This could highlight annual health trends or policy impacts.
+                        
+                        **Interpreting the Residuals Component:**
+                        * **Random Scatter (around zero):** This is the ideal outcome. It suggests that the trend and seasonal components have successfully captured most of the underlying patterns in the data, leaving only random noise. This implies the model is a good fit.
+                        * **Patterns or Trends:** If the residuals show noticeable patterns (e.g., a rising or falling trend, or clear cycles), it indicates that the model has not fully captured all the systematic information in the data. This might suggest the need for a more complex model or different features.
+                        * **Large Spikes:** Could indicate outliers or unusual events that significantly impacted life expectancy during those periods. Further investigation into these specific points might reveal external factors.
                         """)
-
                     else:
-                        st.warning("Insufficient data for time series decomposition (at least 3 data points needed for a single country across all years).")
+                        st.warning("Insufficient data for time series decomposition (requires at least 3 data points for one country across years).")
                 else:
-                    st.info("Select a single country from the sidebar to view time series decomposition across all years.")
+                    st.info("Select one country from the sidebar to view time series decomposition across all years.")
 
-        with tab2:  # Relationships Tab
+        with tab2:
             st.subheader("Advanced Correlation Analysis")
-            # Define default columns for correlation matrix
             default_corr_cols = [
                 'life_expectancy', 'gdp_per_capita', 'health_expenditure_per_capita',
-                'school_enrollment_combined', 'mortality_infant', 'access_to_electricity', 'population_growth_rate' # Added population_growth_rate
+                'school_enrollment_combined', 'mortality_infant', 'access_to_electricity', 'population_growth_rate'
             ]
-            # Filter default columns to only include those present in the filtered DataFrame
             safe_default_corr_cols = [col for col in num_cols_filtered if col in default_corr_cols]
-            
-            # Multiselect for users to choose variables for correlation
             corr_cols = st.multiselect("Select variables for correlation", num_cols_filtered.tolist(), default=safe_default_corr_cols)
 
             if corr_cols and len(corr_cols) > 1 and not filtered_df[corr_cols].empty:
                 corr_df = filtered_df[corr_cols].corr()
-                
-                # Try to cluster correlations for better visualization
                 try:
                     from scipy.cluster import hierarchy
                     dist = hierarchy.distance.pdist(corr_df)
@@ -507,39 +619,35 @@ if df is not None:
                     order = hierarchy.leaves_list(linkage)
                     clustered_corr = corr_df.iloc[order, order]
                 except Exception as e:
-                    # Fallback to unclustered if clustering fails (e.g., due to scipy not being available or small data)
                     clustered_corr = corr_df
                     st.warning(f"Could not perform hierarchical clustering for correlation matrix: {e}. Displaying unclustered matrix.")
                 
-                # Create a Plotly Heatmap for the correlation matrix
                 fig_corr = go.Figure(data=go.Heatmap(
-                    z=clustered_corr,
+                    z=clustered_corr.values,
                     x=clustered_corr.columns,
                     y=clustered_corr.index,
-                    colorscale='RdBu', # Red-Blue color scale for correlations (-1 to 1)
-                    zmin=-1, # Minimum value for color scale
-                    zmax=1, # Maximum value for color scale
-                    text=np.round(clustered_corr.values, 2), # Display correlation values as text
-                    texttemplate="%{text}" # Format for text display
+                    colorscale='Viridis', # Changed to Viridis for better contrast on dark theme
+                    zmin=-1,
+                    zmax=1,
+                    text=np.round(clustered_corr.values, 2),
+                    texttemplate="%{text}",
+                    hoverinfo="x+y+z"
                 ))
                 fig_corr.update_layout(
                     title="Clustered Correlation Matrix",
-                    height=700,  # Increased height
+                    height=700,
                     xaxis_title="Features",
                     yaxis_title="Features",
-                    # Professional theme for Plotly
                     template="plotly_dark", 
-                    paper_bgcolor='#283747',  # Match overall background
-                    plot_bgcolor='#34495E',   # Match feature box background
-                    font=dict(color='#EBF5FB') # Light font color
+                    paper_bgcolor='#1F2228', # Consistent dark background
+                    plot_bgcolor='#212529', # Consistent dark background
+                    font=dict(color='#FAFAFA')
                 )
                 st.plotly_chart(fig_corr, use_container_width=True)
                 
-                # Highlight top positive and negative correlations
-                st.subheader("Strongest Correlations")
                 corr_unstacked = corr_df.unstack().reset_index()
                 corr_unstacked.columns = ['Var1', 'Var2', 'Correlation']
-                corr_unstacked = corr_unstacked[corr_unstacked['Var1'] != corr_unstacked['Var2']] # Exclude self-correlations
+                corr_unstacked = corr_unstacked[corr_unstacked['Var1'] != corr_unstacked['Var2']]
                 top_corrs = corr_unstacked.sort_values('Correlation', ascending=False).head(5)
                 bottom_corrs = corr_unstacked.sort_values('Correlation', ascending=True).head(5)
                 
@@ -556,174 +664,135 @@ if df is not None:
             else:
                 st.info("Please select at least two numerical variables to view the correlation matrix.")
 
-        with tab3:  # Geographic Analysis Tab
+        with tab3:
             st.header("Geographic Analysis")
+            with st.expander(" 🔍  Methodology Details"):
+                st.markdown(f"""
+                **Data Source:** User-uploaded dataset  
+                **Time Period:** {df['year'].min()} - {df['year'].max()}  
+                **Countries in Sample:** {df['country_name'].nunique()}  
+                **Pre-processing:** - Missing values imputed with median  
+                - Country names standardized  
+                - Numerical columns scaled  
+                """)
+            
             st.info("""
-            **Mapping Note:** For accurate geographic display, ensure your dataset includes
-            latitude and longitude columns, or an ISO 3-letter country code (`iso_alpha3`).
-            Currently, markers are placed randomly as a placeholder.
+            **Mapping Note:** This interactive map visualizes life expectancy by country.
+            Countries are identified using ISO 3-letter country codes derived from their names.
             """)
-
+            
             if 'year' in df.columns and 'country_name' in df.columns and not filtered_df.empty:
                 st.subheader("Interactive World Map")
                 
-                # Define the aggregation dictionary for map_df
-                aggregation_dict = {
+                # Create ISO alpha3 country codes
+                def get_iso_alpha3(country_name):
+                    try:
+                        return pycountry.countries.search_fuzzy(country_name)[0].alpha_3
+                    except:
+                        return None
+                        
+                # Rename the column from 'iso_alpha3' to 'Name' as requested
+                filtered_df['Name'] = filtered_df['country_name'].apply(get_iso_alpha3)
+
+                map_df = filtered_df.groupby('country_name').agg({
                     'life_expectancy': 'mean',
                     'gdp_per_capita': 'mean',
-                }
-
-                # --- FIX: Conditionally add 'population_growth_rate' to aggregation ---
-                if 'population_growth_rate' in filtered_df.columns:
-                    aggregation_dict['population_growth_rate'] = 'mean'
-                else:
-                    st.warning("The 'population_growth_rate' column was not found. Map marker sizes will be static (default 5).")
-
-                # Group filtered data by country and calculate means for relevant metrics
-                map_df = filtered_df.groupby('country_name').agg(aggregation_dict).reset_index()
+                    'Name': 'first' # Use 'Name' here
+                }).reset_index().dropna(subset=['Name']) # Drop rows where ISO code couldn't be found
                 
-                # Create a Folium map centered globally
-                m = folium.Map(location=[20, 0], zoom_start=2, tiles='cartodbpositron')
-                
-                try:
-                    # Add markers for each country based on aggregated data
-                    for idx, row in map_df.iterrows():
-                        popup_text = f"""
-                        <b>{row['country_name']}</b><br>
-                        Life Expectancy: {row['life_expectancy']:.1f} yrs<br>
-                        GDP per capita: ${row['gdp_per_capita']:,.0f}
-                        """
-                        marker_radius = 5 # Default minimum radius for markers
-
-                        # --- FIX: Use population_growth_rate for marker radius ---
-                        if 'population_growth_rate' in row:
-                            popup_text += f"<br>Population Growth Rate: {row['population_growth_rate']:.2f}%"
-                            # Scale the growth rate for radius. Abs is used to handle negative growth rates.
-                            # Multiplying by a factor (e.g., 10) and ensuring a minimum size (e.g., 2)
-                            marker_radius = max(2, abs(row['population_growth_rate']) * 10)
-                        
-                        # --- IMPORTANT: Placeholder for actual country coordinates ---
-                        # Replace these random coordinates with actual latitude and longitude
-                        # for each country from your dataset for accurate mapping.
-                        # Example: location=[row['latitude_column'], row['longitude_column']]
-                        folium.CircleMarker(
-                            location=[np.random.uniform(-60, 70), np.random.uniform(-180, 180)], # Placeholder: REPLACE with actual country lat/lon
-                            radius=marker_radius,
-                            popup=popup_text,
-                            color='#3186cc', # Blue color for markers
-                            fill=True,
-                            fill_color='#3186cc'
-                        ).add_to(m)
-                    
-                    # Add layer control to the map
-                    folium.LayerControl().add_to(m)
-                    
-                    # Display the map within a custom styled container
-                    with st.container():
-                        st.markdown('<div class="folium-map">', unsafe_allow_html=True)
-                        # Use folium_static to render the Folium map in Streamlit
-                        folium_static(m, width=1200, height=600)
-                        st.markdown('</div>', unsafe_allow_html=True)
-                        
-                except Exception as e:
-                    st.error(f"Error creating map: {e}")
-                    st.info("Using Plotly as fallback for mapping due to an error.")
-                    # Fallback to Plotly choropleth map
-                    # Ensure 'population_growth_rate' is also added to hover_data if needed for Plotly
-                    hover_data_cols = ['gdp_per_capita']
-                    if 'population_growth_rate' in map_df.columns:
-                        hover_data_cols.append('population_growth_rate')
-
+                if not map_df.empty:
                     fig_map = px.choropleth(
                         map_df,
-                        locations="country_name",
-                        locationmode="country names",
-                        color='life_expectancy',
+                        locations="Name",  # Use 'Name' for locations
+                        color='life_expectancy', # Color by life expectancy
                         hover_name="country_name",
-                        hover_data=hover_data_cols, # Dynamically add population_growth_rate to hover info
-                        color_continuous_scale=px.colors.sequential.Plasma,
-                        title="Global Life Expectancy Distribution"
+                        hover_data=['gdp_per_capita'],
+                        color_continuous_scale='Plasma', # Plasma color scale, matching Plotly defaults for dark theme
+                        title="Global Life Expectancy Distribution",
+                        height=700
                     )
                     fig_map.update_layout(
-                        height=700, # Increased height
-                        template="plotly_dark",
-                        paper_bgcolor='#283747',
-                        plot_bgcolor='#34495E',
-                        font=dict(color='#EBF5FB')
+                        height=700,
+                        template="plotly_dark", # Dark theme for the map
+                        paper_bgcolor='#1F2228', # Background color for the paper
+                        plot_bgcolor='#212529', # Background color for the plot area
+                        font=dict(color='#FAFAFA'), # Font color for text
+                        geo=dict(
+                            bgcolor='rgba(0,0,0,0)', # Transparent background for the geographical area
+                            lakecolor='#17A2B8', # Teal for lakes
+                            landcolor='#2A2E35', # Darker land color
+                            showocean=True, # Show ocean
+                            oceancolor='#1F2228' # Ocean color matching background
+                        )
                     )
                     st.plotly_chart(fig_map, use_container_width=True)
+                else:
+                    st.warning("Could not generate map - missing ISO country codes for selected countries or no data.")
             else:
-                st.info("Geographic analysis requires 'year' and 'country_name' columns and data to be present in the dataset, and selections to be made in the sidebar.")
+                st.info("Geographic analysis requires 'year' and 'country_name' columns in the dataset, and selections to be made in the sidebar.")
 
-        with tab4:  # Deep Analysis Tab
+        with tab4:
             st.subheader("Feature Impact Analysis")
             
             if 'life_expectancy' in num_cols_filtered:
-                # Dropdown to select a feature to analyze against life expectancy
                 feature = st.selectbox("Select Feature to Analyze", 
                                     [col for col in num_cols_filtered if col != 'life_expectancy'])
                 
                 if feature:
-                    # Calculate Pearson correlation between the selected feature and life expectancy
                     correlation = filtered_df['life_expectancy'].corr(filtered_df[feature])
                     
-                    # Create bins for categorical analysis if the feature has many unique values
-                    if filtered_df[feature].nunique() > 10:
-                        try:
-                            filtered_df['feature_bin'] = pd.qcut(filtered_df[feature], 5, duplicates='drop')
-                            # FIX: Convert Interval objects to strings for Plotly compatibility
-                            filtered_df['feature_bin'] = filtered_df['feature_bin'].astype(str)
-                        except Exception as e:
-                            st.warning(f"Could not create bins for '{feature}': {e}. Displaying scatter plot without binned analysis.")
-                            filtered_df['feature_bin'] = filtered_df[feature] # Fallback to original values
-                    else:
-                        filtered_df['feature_bin'] = filtered_df[feature]
-                    
-                    # Plot scatter relationship with OLS trendline
                     fig = px.scatter(
                         filtered_df,
                         x=feature,
                         y='life_expectancy',
-                        # Color by country if selected, otherwise by region if available
                         color='country_name' if selected_countries else 'region' if 'region' in filtered_df else None,
-                        trendline='ols', # Ordinary Least Squares regression line
+                        trendline='ols',
                         title=f"Life Expectancy vs {feature.replace('_', ' ').title()} (Correlation: {correlation:.2f})",
-                        height=600 # Increased height
+                        height=600,
+                        color_discrete_sequence=px.colors.qualitative.Plotly # Use Plotly's default qualitative colors
                     )
+                    
+                    global_avg = df.groupby('year')['life_expectancy'].mean().reset_index()
+                    if not global_avg.empty:
+                        fig.add_hline(y=global_avg['life_expectancy'].mean(),
+                                      line_dash="dot",
+                                      annotation_text="Global Average",
+                                      annotation_position="bottom right",
+                                      line_color='#6C757D') # Softer line color
                     fig.update_layout(
                         template="plotly_dark",
-                        paper_bgcolor='#283747',
-                        plot_bgcolor='#34495E',
-                        font=dict(color='#EBF5FB')
+                        paper_bgcolor='#1F2228',
+                        plot_bgcolor='#212529',
+                        font=dict(color='#FAFAFA'),
+                        hovermode='closest'
                     )
                     st.plotly_chart(fig, use_container_width=True)
                     
-                    # Box plot for binned categorical analysis, if successful
-                    if 'feature_bin' in filtered_df and filtered_df['feature_bin'].nunique() > 1:
-                        fig_box = px.box(
-                            filtered_df,
-                            x='feature_bin',
-                            y='life_expectancy',
-                            title=f"Life Expectancy Distribution by {feature.replace('_', ' ').title()} Groups",
-                            height=600 # Increased height
-                        )
-                        fig_box.update_layout(
-                            template="plotly_dark",
-                            paper_bgcolor='#283747',
-                            plot_bgcolor='#34495E',
-                            font=dict(color='#EBF5FB')
-                        )
-                        st.plotly_chart(fig_box, use_container_width=True)
-                    elif 'feature_bin' in filtered_df:
-                        st.info(f"Not enough unique bins created for '{feature}' to show box plot.")
+                    if filtered_df[feature].nunique() > 1:
+                        try:
+                            filtered_df['feature_bin'] = pd.qcut(filtered_df[feature], 5, duplicates='drop')
+                            fig_box = px.box(
+                                filtered_df,
+                                x='feature_bin',
+                                y='life_expectancy',
+                                title=f"Life Expectancy Distribution by {feature.replace('_', ' ').title()} Group",
+                                height=600,
+                                color_discrete_sequence=px.colors.qualitative.Plotly
+                            )
+                            fig_box.update_layout(
+                                template="plotly_dark",
+                                paper_bgcolor='#1F2228',
+                                plot_bgcolor='#212529',
+                                font=dict(color='#FAFAFA')
+                            )
+                            st.plotly_chart(fig_box, use_container_width=True)
+                        except Exception as e:
+                            st.warning(f"Could not create bins for '{feature}': {e}. Skipping box plot.")
 
-            st.subheader("Predictive Modeling: Factors Affecting Life Expectancy")
+            st.subheader("Predictive Modeling: Factors Influencing Life Expectancy")
             st.markdown("Build a simple predictive model to understand feature importance.")
-
-            # Define features (X) and target (y) for the model
             target = 'life_expectancy'
             
-            # Exclude non-numeric columns, identifiers, and the target itself from features
             potential_features = [col for col in num_cols_filtered if col != target and col not in ['year']]
             
             if not potential_features:
@@ -731,93 +800,104 @@ if df is not None:
             elif filtered_df.empty:
                 st.info("Filtered dataset is empty, cannot perform predictive modeling.")
             else:
-                # Allow user to select features for the model
                 selected_model_features = st.multiselect(
-                    "Select features for the predictive model",
+                    "Select features for predictive model",
                     potential_features,
                     default=[pf for pf in ['gdp_per_capita', 'health_expenditure_per_capita', 'school_enrollment_combined', 'mortality_infant', 'access_to_electricity', 'population_growth_rate'] if pf in potential_features]
                 )
-
                 if selected_model_features:
-                    X = filtered_df[selected_model_features]
-                    y = filtered_df[target]
-
-                    # Drop rows with NaN values in X or y if any, as models don't handle them directly
-                    # (though median imputation was done earlier, this is a safety check for complex cases)
                     clean_df = filtered_df[[target] + selected_model_features].dropna()
-                    if clean_df.empty:
-                        st.warning("No complete data rows available for selected features and target after dropping NaNs. Please check your data.")
-                    else:
+                    
+                    min_total_samples_for_model = 10
+                    
+                    if len(clean_df) < min_total_samples_for_model:
+                        st.warning(f"Insufficient complete data rows ({len(clean_df)} samples) for predictive modeling. "
+                                   f"Please ensure at least {min_total_samples_for_model} samples after selecting features and handling missing values.")
+                    else: 
                         X_clean = clean_df[selected_model_features]
                         y_clean = clean_df[target]
-
-                        if len(X_clean) > 1 and len(np.unique(y_clean)) > 1: # Need at least 2 samples and >1 unique target value
-                            # Split data into training and testing sets
-                            X_train, X_test, y_train, y_test = train_test_split(X_clean, y_clean, test_size=0.2, random_state=42)
-
-                            # Standardize features
-                            scaler = StandardScaler()
-                            X_train_scaled = scaler.fit_transform(X_train)
-                            X_test_scaled = scaler.transform(X_test)
-
-                            # Train a RandomForestRegressor model
-                            model = RandomForestRegressor(n_estimators=100, random_state=42)
-                            model.fit(X_train_scaled, y_train)
-
-                            # Make predictions and evaluate the model
-                            y_pred = model.predict(X_test_scaled)
-                            r2 = r2_score(y_test, y_pred)
-                            mse = mean_squared_error(y_test, y_pred)
-
-                            # Store results in session state
-                            st.session_state['r2_score'] = r2
-                            st.session_state['feature_importance'] = pd.DataFrame({
-                                'Feature': selected_model_features,
-                                'Importance': model.feature_importances_
-                            }).sort_values('Importance', ascending=False)
-
-                            st.write(f"**Model R-squared Score:** `{st.session_state['r2_score']:.2f}`")
-                            st.write(f"**Mean Squared Error:** `{mse:.2f}`")
-
-                            st.subheader("Feature Importance")
+                        if len(np.unique(y_clean)) <= 1:
+                            st.warning("Insufficient variation in target (life expectancy) for predictive modeling. All values are the same or too few unique values.")
+                        else:
+                            min_splits_cv = 5
+                            max_test_size = 1 - (min_splits_cv / len(clean_df))
+                            test_size_val = max(0.1, min(0.5, max_test_size))
+                            X_train, X_test, y_train, y_test = train_test_split(X_clean, y_clean, test_size=test_size_val, random_state=42)
+                            
+                            n_samples_train = len(X_train)
+                            n_splits_adjusted = min(n_samples_train, min_splits_cv)
+                            
+                            if n_splits_adjusted < 2:
+                                scaler = StandardScaler()
+                                X_train_scaled = scaler.fit_transform(X_train)
+                                X_test_scaled = scaler.transform(X_test)
+                                model = Ridge(alpha=1.0)
+                                model.fit(X_train_scaled, y_train)
+                                y_pred = model.predict(X_test_scaled)
+                                r2 = r2_score(y_test, y_pred)
+                                mse = mean_squared_error(y_test, y_pred)
+                                st.write(f"**Test Set R-squared:** {r2:.2f}")
+                                st.write(f"**Mean Squared Error:** {mse:.2f}")
+                                
+                                st.session_state['feature_importance'] = pd.DataFrame({
+                                    'Feature': selected_model_features,
+                                    'Coefficient': model.coef_
+                                }).sort_values('Coefficient', key=abs, ascending=False)
+                            else:
+                                scaler = StandardScaler()
+                                X_train_scaled = scaler.fit_transform(X_train)
+                                X_test_scaled = scaler.transform(X_test) 
+                                alphas = [0.001, 0.01, 0.1, 1, 10, 100]
+                                model = RidgeCV(alphas=alphas, cv=n_splits_adjusted) 
+                                model.fit(X_train_scaled, y_train)
+                                
+                                kfold = KFold(n_splits=n_splits_adjusted, shuffle=True, random_state=42)
+                                cv_scores = cross_val_score(model, X_train_scaled, y_train,
+                                                            cv=kfold, scoring='r2')
+                                st.write(f"**Best Alpha (Regularization):** {model.alpha_:.4f}")
+                                st.write(f"**Average CV R-squared:** {cv_scores.mean():.2f}")
+                                
+                                y_pred = model.predict(X_test_scaled)
+                                r2 = r2_score(y_test, y_pred)
+                                mse = mean_squared_error(y_test, y_pred)
+                                
+                                st.session_state['r2_score'] = r2
+                                st.session_state['feature_importance'] = pd.DataFrame({
+                                    'Feature': selected_model_features,
+                                    'Coefficient': model.coef_
+                                }).sort_values('Coefficient', key=abs, ascending=False)
+                                
+                                st.write(f"**Test Set R-squared:** {r2:.2f}")
+                                st.write(f"**Mean Squared Error:** {mse:.2f}")
+                            st.subheader("Feature Importance (Coefficients)")
                             st.dataframe(st.session_state['feature_importance'])
-
-                            # Plot feature importance
                             fig_feature_imp = px.bar(st.session_state['feature_importance'], 
-                                                    x='Importance', y='Feature', orientation='h',
-                                                    title='Feature Importance in Life Expectancy Prediction',
-                                                    height=600 # Increased height
-                            )
+                                                    x='Coefficient', y='Feature', orientation='h', 
+                                                    title='Feature Impact (Coefficients) on Life Expectancy Prediction',
+                                                    height=600,
+                                                    color_discrete_sequence=px.colors.qualitative.Plotly)
                             fig_feature_imp.update_layout(
                                 yaxis={'categoryorder':'total ascending'},
                                 template="plotly_dark",
-                                paper_bgcolor='#283747',
-                                plot_bgcolor='#34495E',
-                                font=dict(color='#EBF5FB')
+                                paper_bgcolor='#1F2228',
+                                plot_bgcolor='#212529',
+                                font=dict(color='#FAFAFA')
                             )
                             st.plotly_chart(fig_feature_imp, use_container_width=True)
-                        else:
-                            st.warning("Not enough data or variety in target for predictive modeling with selected features.")
                 else:
-                    st.info("Select features to build the predictive model.")
+                    st.info("Select features to build a predictive model.")
             
-            # --- NEW: Parallel Coordinates Plot ---
-            st.subheader("Multi-Dimensional Data Relationships (Parallel Coordinates)")
+            # --- Improved Parallel Coordinates Plot ---
+            st.subheader("Multi-dimensional Data Relationships (Parallel Coordinates)")
             st.markdown("Visualize patterns and clusters across multiple numerical features.")
-
-            # Exclude 'year' and 'feature_bin' from options as they are typically not suitable
-            parallel_coord_cols_options = [col for col in num_cols_filtered if col not in ['year', 'feature_bin']]
-
-            # Add categorical columns as options for the color dimension
+            parallel_coord_cols_options = [col for col in num_cols_filtered if col != 'year']
             categorical_color_options = []
             if 'country_name' in filtered_df.columns and filtered_df['country_name'].nunique() > 1 and len(filtered_df['country_name'].unique()) <= 50:
                 categorical_color_options.append('country_name')
             if 'region' in filtered_df.columns and filtered_df['region'].nunique() > 1 and len(filtered_df['region'].unique()) <= 20:
                 categorical_color_options.append('region')
-
             all_color_options = ['None'] + sorted(parallel_coord_cols_options) + sorted(categorical_color_options)
             
-            # User selects variables for the dimensions of the parallel coordinates plot
             default_pc_dimensions = [
                 'life_expectancy', 'gdp_per_capita',
                 'health_expenditure_per_capita', 'school_enrollment_combined'
@@ -829,88 +909,80 @@ if df is not None:
                 parallel_coord_cols_options,
                 default=safe_default_pc_dimensions
             )
-
-            # User selects the color dimension for the parallel coordinates plot
             color_choice = st.selectbox(
                 "Color lines by",
                 all_color_options,
-                index=all_color_options.index('life_expectancy') if 'life_expectancy' in all_color_options else 0 # Default to 'life_expectancy' or 'None'
+                index=all_color_options.index('life_expectancy') if 'life_expectancy' in all_color_options else (all_color_options.index('None') if 'None' in all_color_options else 0)
             )
-
+            
             if selected_parallel_cols and len(selected_parallel_cols) > 1:
-                color_dimension_for_plot = None
-                plot_df_for_pc = filtered_df[selected_parallel_cols].copy() # Start with only the dimensions
-
-                if color_choice != 'None':
-                    color_dimension_for_plot = color_choice
-                    if color_dimension_for_plot not in plot_df_for_pc.columns:
-                        plot_df_for_pc[color_dimension_for_plot] = filtered_df[color_dimension_for_plot]
-
-                    # Convert categorical color dimension to numerical codes for Plotly
-                    # This ensures Plotly can plot it, and we use hover_data to show original labels
-                    if plot_df_for_pc[color_dimension_for_plot].dtype == 'object' or pd.api.types.is_categorical_dtype(plot_df_for_pc[color_dimension_for_plot]):
-                        # Create a temporary numerical column for coloring
-                        plot_df_for_pc[f'{color_dimension_for_plot}_codes'] = plot_df_for_pc[color_dimension_for_plot].astype('category').cat.codes
+                # Create a clean DataFrame with only the needed columns
+                cols_for_plot = list(set(selected_parallel_cols + ([color_choice] if color_choice != 'None' else [])))
+                pc_df = filtered_df[cols_for_plot].dropna().copy()
+                
+                if not pc_df.empty:
+                    # Create custom dimensions with proper ranges
+                    dimensions = []
+                    for col in selected_parallel_cols:
+                        if col in pc_df.columns:
+                            col_min = pc_df[col].min()
+                            col_max = pc_df[col].max()
+                            range_buffer = (col_max - col_min) * 0.1 # 10% buffer for range
+                            
+                            dim_config = {
+                                "label": col.replace('_', ' ').title(),
+                                "values": pc_df[col],
+                                "range": [col_min - range_buffer, col_max + range_buffer]
+                            }
+                            
+                            # Special handling for life expectancy
+                            if col == 'life_expectancy':
+                                dim_config["range"] = [40, 90]  # Fixed range for better comparison
+                            
+                            dimensions.append(dim_config)
+                    
+                    if len(dimensions) >= 2:
+                        fig_par_coords = go.Figure(data=go.Parcoords(
+                            line=dict(
+                                color=pc_df[color_choice] if color_choice != 'None' and color_choice in pc_df.columns else '#007BFF', # Consistent blue line if no color chosen
+                                colorscale='Viridis', # Use Viridis colorscale
+                                showscale=True if color_choice != 'None' and color_choice in pc_df.columns else False,
+                                cmin=pc_df[color_choice].min() if color_choice != 'None' else None,
+                                cmax=pc_df[color_choice].max() if color_choice != 'None' else None
+                            ),
+                            dimensions=dimensions
+                        ))
                         
-                        par_coords_kwargs = {
-                            "data_frame": plot_df_for_pc.dropna(), # Drop NaNs before plotting
-                            "dimensions": selected_parallel_cols,
-                            "title": "Parallel Coordinates Analysis",
-                            "color": f'{color_dimension_for_plot}_codes',
-                            "color_continuous_scale": px.colors.qualitative.Plotly, # Use a qualitative scale for categories
-                            "custom_data": [color_dimension_for_plot],
-                            "hover_data": {f'{color_dimension_for_plot}_codes': False, color_dimension_for_plot: True},
-                            "height": 600 # Increased height
-                        }
+                        fig_par_coords.update_layout(
+                            title="Parallel Coordinates Analysis",
+                            height=700,
+                            template="plotly_dark",
+                            paper_bgcolor='#1F2228',
+                            plot_bgcolor='#212529',
+                            font=dict(color='#FAFAFA'),
+                            margin=dict(l=80, r=80, t=80, b=80)
+                        )
+                        st.plotly_chart(fig_par_coords, use_container_width=True)
                     else:
-                        # For numerical color dimension
-                        par_coords_kwargs = {
-                            "data_frame": plot_df_for_pc.dropna(), # Drop NaNs before plotting
-                            "dimensions": selected_parallel_cols,
-                            "title": "Parallel Coordinates Analysis",
-                            "color": color_dimension_for_plot,
-                            "color_continuous_scale": px.colors.sequential.Viridis,
-                            "height": 600 # Increased height
-                        }
+                        st.info("Not enough valid dimensions to plot")
                 else:
-                    # No color dimension selected
-                    par_coords_kwargs = {
-                        "data_frame": plot_df_for_pc.dropna(), # Drop NaNs before plotting
-                        "dimensions": selected_parallel_cols,
-                        "title": "Parallel Coordinates Analysis",
-                        "height": 600 # Increased height
-                    }
-
-                if not plot_df_for_pc.dropna().empty:
-                    fig_par_coords = px.parallel_coordinates(**par_coords_kwargs)
-                    fig_par_coords.update_layout(
-                        template="plotly_dark",
-                        paper_bgcolor='#283747',
-                        plot_bgcolor='#34495E',
-                        font=dict(color='#EBF5FB')
-                    )
-                    st.plotly_chart(fig_par_coords, use_container_width=True)
-                else:
-                    st.info("No complete data rows for selected variables and color dimension to plot Parallel Coordinates after dropping NaNs.")
+                    st.info("No complete data for selected variables")
             else:
-                st.info("Please select at least two numerical variables for the Parallel Coordinates plot dimensions.")
+                st.info("Please select at least two numerical variables")
 
-
-        with tab5:  # Recommendations Tab
+        with tab5:
             st.header("Data-Driven Recommendations")
             
             if not filtered_df.empty and 'life_expectancy' in filtered_df.columns:
                 st.subheader("Performance Benchmarks")
                 
-                # Calculate improvement metrics (Life Expectancy Growth)
                 if 'year' in filtered_df.columns and filtered_df['year'].nunique() > 1:
                     le_diff = filtered_df.groupby('country_name')['life_expectancy'].agg(
-                        le_start=('min'), # Life expectancy at the earliest year
-                        le_end=('max'),   # Life Expectancy at the latest year
-                        le_growth=lambda x: x.max() - x.min() # Difference between max and min
+                        le_start=('min'),
+                        le_end=('max'),
+                        le_growth=lambda x: x.max() - x.min()
                     ).reset_index()
                     
-                    # Sort and display top/bottom performers in life expectancy growth
                     top_growth = le_diff.sort_values('le_growth', ascending=False).head(3)
                     bottom_growth = le_diff.sort_values('le_growth', ascending=True).head(3)
                     
@@ -922,16 +994,13 @@ if df is not None:
                     
                     with col2:
                         st.markdown("**Countries Needing Improvement**")
-                        # Fix: Changed 'bottom_corrs' to 'bottom_growth'
                         for _, row in bottom_growth.iterrows():
                             st.markdown(f"- **{row['country_name'].title()}**: {row['le_growth']:.1f} years")
                 else:
-                    st.info("Insufficient years data to calculate life expectancy growth. Please select multiple years.")
+                    st.info("Insufficient year data to calculate life expectancy growth. Please select multiple years.")
                 
-                # Gap analysis for country comparison
                 if len(selected_countries) > 1:
                     st.subheader("Country Comparison Analysis")
-                    # Aggregate key metrics for selected countries
                     comparison_df = filtered_df.groupby('country_name').agg({
                         'life_expectancy': 'mean',
                         'gdp_per_capita': 'mean',
@@ -939,15 +1008,12 @@ if df is not None:
                         'school_enrollment_combined': 'mean'
                     }).reset_index()
                     
-                    # Allow user to select a baseline country for comparison
-                    base_country = st.selectbox("Select Baseline Country", comparison_df['country_name'].tolist())
+                    base_country = st.selectbox("Select Base Country", comparison_df['country_name'].tolist())
                     
                     if base_country:
-                        # Get baseline values
                         base_values = comparison_df[comparison_df['country_name'] == base_country].iloc[0]
                         
                         gap_analysis = []
-                        # Calculate gaps for other countries relative to the baseline
                         for _, row in comparison_df.iterrows():
                             if row['country_name'] != base_country:
                                 gap = {
@@ -961,20 +1027,18 @@ if df is not None:
                         
                         gap_df = pd.DataFrame(gap_analysis)
                         
-                        st.write("**Performance Gaps Compared to Baseline:**")
-                        # Display performance gaps with a color gradient
+                        st.write("**Performance Gap Compared to Baseline:**")
                         st.dataframe(gap_df.style.background_gradient(cmap='RdYlGn', subset=['life_expectancy_gap', 'gdp_gap_percent', 'health_exp_gap_percent', 'education_gap'], axis=0))
                     else:
-                        st.info("Select a baseline country to perform gap analysis.")
+                        st.info("Select a base country to perform gap analysis.")
                 else:
                     st.info("Select more than one country in the sidebar to perform country comparison analysis.")
             else:
                 st.info("Please ensure data is loaded and filtered to see recommendations.")
-
-    else: # filtered_df is empty, show general message
+    else:
         if uploaded_file is None:
             st.info("Upload a dataset to unlock all analysis features.")
-        elif df is not None and (not selected_years or not selected_countries) and not df.empty: # More specific for "no data after filters"
-            st.info("Please make selections in the sidebar filters (Year(s) and Countries) to view the dashboard content. No data is currently selected for display.")
-        elif df is not None and df.empty: # If file was uploaded but it was empty
+        elif df is not None and (not selected_years or not selected_countries) and not df.empty:
+            st.info("Please make selections in the sidebar filters (Years and Countries) to view dashboard content. Currently no data is selected to display.")
+        elif df is not None and df.empty:
             st.info("Uploaded data is empty. Please upload a valid dataset.")
