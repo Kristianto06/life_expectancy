@@ -37,7 +37,7 @@ if 'scaler' not in st.session_state:
 st.set_page_config(
     layout="wide",
     page_title="Life Expectancy Analysis Dashboard",
-    page_icon=" 🌎 "
+    page_icon=" 🌿 "
 )
 
 # --- Custom CSS for dark elegant theme ---
@@ -325,7 +325,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- Introduction ---
-st.title(" 🌎  The Longevity Puzzle: Unlocking the Secrets to a Longer Life")
+st.title(" 🌿  The Longevity Puzzle: Unlocking the Secrets to a Longer Life")
 st.markdown(f"""
 <div class="intro-box">
     <h3 class="glow-text">Uncover What Shapes a Longer Life</h3>
@@ -1027,54 +1027,56 @@ if df is not None:
                             if baseline_country_data.empty or base_year not in baseline_country_data['year'].values:
                                 return pd.DataFrame()
                             
-                            last_data = baseline_country_data[baseline_country_data['year'] == base_year].iloc[0]
-                            projections = []
+                            last_data = baseline_country_data[baseline_country_data['year'] == base_year].iloc[0] # This is a Series
+                            scenario_dfs_list = [] # Will store DataFrames for each year within a scenario
                             
                             # Calculate historical trends for non-gdp features
                             hist_trends = {}
                             for feature in features:
                                 if feature != 'gdp_per_capita' and feature in baseline_country_data.columns:
-                                    # Ensure there are at least two points to calculate change
                                     if len(baseline_country_data[feature].dropna()) >= 2:
                                         hist_trend = baseline_country_data[feature].pct_change().mean()
                                         hist_trends[feature] = hist_trend if not np.isnan(hist_trend) else 0.0
                                     else:
-                                        hist_trends[feature] = 0.0 # No historical trend if not enough data
+                                        hist_trends[feature] = 0.0
 
                             for growth_label in gdp_growth_rates:
                                 growth_rate = gdp_growth_options[growth_label]
-                                scenario_data = []
-                                current_data = last_data.copy()
+                                current_scenario_rows = [] # Stores rows (as DataFrames) for the current growth scenario
                                 
-                                # Include baseline year in plot for context
-                                scenario_data.append(last_data.assign(gdp_growth=growth_label))
+                                # Convert the initial Series (last_data) to a DataFrame before assigning 'gdp_growth'
+                                initial_row_df = pd.DataFrame([last_data.to_dict()])
+                                current_scenario_rows.append(initial_row_df.assign(gdp_growth=growth_label))
 
+                                current_data_series = last_data.copy() # Keep as Series for modification in the loop
+                                
                                 for year in range(base_year + 1, base_year + projection_years + 1):
-                                    projection = current_data.copy()
-                                    projection['year'] = year
+                                    projection_series = current_data_series.copy()
+                                    projection_series['year'] = year
                                     
                                     # Apply GDP growth
                                     if 'gdp_per_capita' in features:
-                                        projection['gdp_per_capita'] *= (1 + growth_rate)
+                                        projection_series['gdp_per_capita'] *= (1 + growth_rate)
                                     
                                     # Assume other factors change linearly (simplified)
                                     for feature in features:
-                                        if feature != 'gdp_per_capita' and feature in projection.index:
-                                            projection[feature] *= (1 + hist_trends.get(feature, 0.0))
+                                        if feature != 'gdp_per_capita' and feature in projection_series.index:
+                                            projection_series[feature] *= (1 + hist_trends.get(feature, 0.0))
                                     
-                                    # Prepare features for prediction, ensuring correct order and scaling
-                                    X_proj_df = pd.DataFrame([projection[features]])
+                                    # Predict life expectancy
+                                    X_proj_df = pd.DataFrame([projection_series[features]]) # This correctly converts for prediction
                                     X_proj_scaled = scaler.transform(X_proj_df)
                                     
-                                    projection['life_expectancy'] = model.predict(X_proj_scaled)[0]
+                                    projection_series['life_expectancy'] = model.predict(X_proj_scaled)[0]
                                     
-                                    scenario_data.append(projection.assign(gdp_growth=growth_label))
-                                    current_data = projection # Use as base for next year
+                                    # Convert the projection Series to a DataFrame before assigning 'gdp_growth'
+                                    current_scenario_rows.append(pd.DataFrame([projection_series.to_dict()]).assign(gdp_growth=growth_label))
+                                    current_data_series = projection_series # Use this Series for the next iteration
                                 
-                                projections.append(pd.DataFrame(scenario_data))
+                                scenario_dfs_list.append(pd.concat(current_scenario_rows).reset_index(drop=True))
                             
-                            if projections:
-                                return pd.concat(projections).reset_index(drop=True)
+                            if scenario_dfs_list:
+                                return pd.concat(scenario_dfs_list).reset_index(drop=True)
                             return pd.DataFrame()
 
                         if st.button("Generate Projections", key="run_projections"):
