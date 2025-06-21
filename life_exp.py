@@ -8,14 +8,13 @@ from streamlit_folium import st_folium
 import re
 from sklearn.linear_model import Ridge, RidgeCV
 from sklearn.model_selection import cross_val_score, KFold
-import colorcet as cc
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import RandomForestRegressor # Keep this if you plan to use it later, otherwise remove
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.preprocessing import StandardScaler
 from statsmodels.tsa.seasonal import seasonal_decompose
 import matplotlib.pyplot as plt
-import pycountry # Add this import at the top
+import pycountry
 
 # --- Session State Initialization ---
 if 'selected_region_display' not in st.session_state:
@@ -26,367 +25,314 @@ if 'feature_importance' not in st.session_state:
     st.session_state.feature_importance = pd.DataFrame()
 if 'r2_score' not in st.session_state:
     st.session_state.r2_score = None
+if 'trained_model' not in st.session_state:
+    st.session_state.trained_model = None
+if 'model_features' not in st.session_state:
+    st.session_state.model_features = []
+if 'scaler' not in st.session_state:
+    st.session_state.scaler = None
+
 
 # --- Set page configuration ---
 st.set_page_config(
     layout="wide",
     page_title="Life Expectancy Analysis Dashboard",
-    page_icon="  📊  "
+    page_icon=" 🌿 "
 )
 
-# --- Custom CSS for styling (updated for dark elegant theme based on example URL) ---
+# --- Custom CSS for dark elegant theme ---
 st.markdown("""
 <style>
-    /* General body/app background */
+    /* Base styling */
+    * {
+        box-sizing: border-box;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
     body {
-        background-color: #0E1117; /* Darkest background from Streamlit default dark theme */
-        color: #FAFAFA; /* Default text color, light gray */
+        background-color: #0A0E17;
+        color: #E0E0E0;
     }
-
-    /* Main Streamlit container background */
     .stApp {
-        background-color: #0E1117;
-        color: #FAFAFA;
+        background: linear-gradient(135deg, #0A0E17 0%, #141A29 100%);
+        color: #E0E0E0;
+        width: 100%; 
+        max-width: 100%;
+        overflow-x: hidden; /* Prevent horizontal scroll on main app */
     }
-
-    /* Set overall dark theme for plotly plots */
-    .js-plotly-plot .plotly .modebar {
-        background-color: #1F2228 !important; /* Slightly lighter than app background */
+    /* Header styling */
+    h1, h2, h3, h4, h5, h6 {
+        color: #FFFFFF;
+        font-weight: 600;
+        letter-spacing: 0.5px;
     }
-    .js-plotly-plot .plotly .cursor-pointer {
-        fill: #FAFAFA !important; /* For text within plots */
-    }
-
-    /* Styling for the info/success/warning boxes */
-    div[data-testid="stAlert"] {
-        border-radius: 0.5rem;
-        font-weight: bold;
-    }
-    div[data-testid="stAlert"] .st-emotion-cache-v06ywu { /* Specific for success */
-        background-color: #28A745 !important; /* Brighter Green */
-        color: white !important;
-        border-radius: 0.5rem;
-        border: none;
-    }
-    div[data-testid="stAlert"] .st-emotion-cache-1jmveo { /* General alert background, used for info/warning */
-        background-color: #212529 !important; /* Dark grey for info/warning */
-        color: #FAFAFA !important;
-        border-radius: 0.5rem;
-        border: none;
-    }
-    div[data-testid="stAlert"] .st-emotion-cache-1y5v8a8 { /* Info alert */
-        background-color: #17A2B8 !important; /* Teal blue */
-        color: white !important;
-    }
-    div[data-testid="stAlert"] .st-emotion-cache-1f1i1k7 { /* Warning alert */
-        background-color: #FFC107 !important; /* Yellow */
-        color: #212529 !important; /* Dark text for warning */
-    }
-     div[data-testid="stAlert"] .st-emotion-cache-gsvt5j p { /* Error alert (if any) */
-        color: white !important;
-    }
-
-
-    /* Introduction Box */
+    /* Introduction box */
     .intro-box {
-        background-color: #1F2228; /* Slightly lighter dark grey */
-        padding: 20px;
-        border-radius: 10px;
-        margin-bottom: 20px;
-        color: #FAFAFA;
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3); /* Subtle shadow */
+        background: rgba(26, 32, 48, 0.85);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(64, 128, 255, 0.2);
+        border-radius: 12px;
+        padding: 25px;
+        margin-bottom: 25px;
+        box-shadow: 0 8px 32px rgba(0, 20, 60, 0.3);
     }
-    .intro-box h3 {
-        color: #FAFAFA;
-        font-size: 1.8rem;
-        margin-bottom: 10px;
-    }
-    .intro-box p {
-        color: #CCCCCC; /* Slightly darker text for body */
-        font-size: 1rem;
-        line-height: 1.6;
-    }
-
-    /* Metrics Styling - Targeted for screenshot appearance */
+    /* Metrics styling */
     div[data-testid="stMetric"] {
-        border-radius: 10px;
-        padding: 15px;
-        margin: 5px;
-        text-align: center;
-        box-shadow: 0 6px 15px rgba(0, 0, 0, 0.4); /* More pronounced shadow */
-        transition: transform 0.2s ease-in-out; /* Add hover effect */
+        background: rgba(20, 25, 38, 0.8);
+        border-radius: 12px;
+        padding: 20px;
+        margin: 8px;
+        border: 1px solid rgba(64, 128, 255, 0.15);
+        box-shadow: 0 6px 20px rgba(0, 15, 40, 0.25);
+        transition: all 0.3s ease;
     }
     div[data-testid="stMetric"]:hover {
-        transform: translateY(-5px); /* Lift on hover */
+        transform: translateY(-5px);
+        box-shadow: 0 10px 25px rgba(0, 20, 60, 0.4);
     }
-
-    /* Specific colors for metric boxes using nth-child */
-    /* Records - Blue */
-    div[data-testid="stMetric"]:nth-child(1) > div { 
-        background-color: #007BFF !important; /* Bootstrap Blue */
-        color: white !important;
+    div[data-testid="stMetric"] > div {
+        background: transparent !important;
     }
-    /* Features - Green */
-    div[data-testid="stMetric"]:nth-child(2) > div { 
-        background-color: #28A745 !important; /* Bootstrap Green */
-        color: white !important;
+    div[data-testid="stMetric"] label {
+        color: #9DB5CE !important;
+        font-size: 0.95rem;
+        font-weight: 500;
     }
-    /* Countries - Orange */
-    div[data-testid="stMetric"]:nth-child(3) > div { 
-        background-color: #FD7E14 !important; /* Bootstrap Orange */
-        color: white !important;
+    div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
+        color: #FFFFFF !important;
+        font-size: 2.4rem;
+        font-weight: 700;
+        text-shadow: 0 0 10px rgba(100, 180, 255, 0.3);
     }
-    div[data-testid="stMetric"] label { /* Metric label */
-        color: white !important;
-        font-size: 1rem;
-        font-weight: normal;
+    div[data-testid="stMetric"] div[data-testid="stMetricDelta"] {
+        color: #9DB5CE !important;
+        font-size: 1.1rem;
     }
-    div[data-testid="stMetric"] div[data-testid="stMetricValue"] { /* Metric value */
-        color: white !important;
-        font-size: 2.5rem;
-        font-weight: bold;
-    }
-    div[data-testid="stMetric"] div[data-testid="stMetricDelta"] { /* Metric delta */
-        color: white !important;
-        font-size: 1.2rem;
-    }
-
-    /* Tabs Styling */
+    /* Tabs styling */
     .stTabs [data-testid="stTab"] {
-        background-color: #1F2228; /* Inactive tab background */
-        color: #AAAAAA; /* Lighter grey for inactive text */
-        border-radius: 8px 8px 0 0; /* Rounded top corners */
-        margin-right: 5px;
-        padding: 12px 25px;
-        font-weight: bold;
-        transition: background-color 0.3s ease, color 0.3s ease;
+        background: rgba(20, 25, 38, 0.6);
+        color: #9DB5CE;
+        border-radius: 8px 8px 0 0;
+        margin-right: 6px;
+        padding: 14px 28px;
+        font-weight: 500;
+        transition: all 0.3s ease;
+        border-bottom: 2px solid transparent;
     }
     .stTabs [data-testid="stTab"]:hover {
-        background-color: #2A2E35; /* Slightly lighter on hover */
-        color: #FAFAFA;
+        background: rgba(30, 40, 60, 0.8);
+        color: #FFFFFF;
     }
     .stTabs [data-testid="stTab"][aria-selected="true"] {
-        background-color: #2A2E35; /* Active tab background */
-        color: #FAFAFA; /* White text for active tab */
-        border-bottom: 3px solid #DC3545; /* Red underline for active tab */
-        animation: tab-active-border 0.3s forwards; /* Subtle animation */
+        background: rgba(30, 40, 60, 0.95);
+        color: #FFFFFF;
+        border-bottom: 3px solid #4A8BFF;
     }
-    @keyframes tab-active-border {
-        from { border-bottom-color: transparent; }
-        to { border-bottom-color: #DC3545; }
-    }
-
-    /* Tab content area background */
     .stTabs [data-testid="stVerticalBlock"] {
-        background-color: #1F2228; /* Dark grey for tab content */
+        background: rgba(20, 25, 38, 0.7);
+        border-radius: 0 0 12px 12px;
         padding: 30px;
-        border-radius: 0 0 10px 10px; /* Rounded bottom corners */
-        box-shadow: 0 6px 15px rgba(0, 0, 0, 0.4);
+        border: 1px solid rgba(64, 128, 255, 0.15);
+        box-shadow: 0 8px 32px rgba(0, 15, 40, 0.25);
     }
-
     /* Sidebar styling */
-    .st-emotion-cache-vk33wx { /* Sidebar background */
-        background-color: #15181C; /* Slightly different dark for sidebar */
-        color: #FAFAFA;
-        padding: 20px 15px; /* Adjust padding */
+    .st-emotion-cache-vk33wx {
+        background: rgba(15, 20, 30, 0.95);
+        border-right: 1px solid rgba(64, 128, 255, 0.1);
+        box-shadow: 4px 0 20px rgba(0, 10, 30, 0.4);
     }
-    .st-emotion-cache-vk33wx .st-emotion-cache-1w0nxu { /* Sidebar header */
-        color: #FAFAFA;
-        font-size: 1.5rem;
-        margin-bottom: 15px;
-        border-bottom: 1px solid #333; /* Subtle separator */
-        padding-bottom: 10px;
-    }
-
     /* Expander styling */
-    .st-emotion-cache-1evx060 { /* Expander header wrapper */
-        background-color: #2A2E35; /* Darker header for expander */
+    .st-emotion-cache-1evx060 {
+        background: rgba(26, 32, 48, 0.6);
         border-radius: 8px;
-        margin-bottom: 10px;
-        overflow: hidden; /* Ensure border-radius applies */
-        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        margin-bottom: 12px;
+        border: 1px solid rgba(64, 128, 255, 0.15);
     }
     .st-emotion-cache-1evx060 button {
-        color: #FAFAFA; /* Expander icon/text color */
-        font-weight: bold;
-        padding: 15px;
+        color: #FFFFFF;
+        font-weight: 500;
+        padding: 16px;
     }
     .st-emotion-cache-1evx060 div[data-testid="stExpanderDetails"] {
-        background-color: #1F2228; /* Content background */
-        border-radius: 0 0 8px 8px;
+        background: rgba(20, 25, 38, 0.6);
+        border-top: 1px solid rgba(64, 128, 255, 0.1);
         padding: 20px;
-        border-top: 1px solid #333;
     }
-    .st-emotion-cache-1evx060 div[data-testid="stExpanderDetails"] p {
-        color: #CCCCCC; /* Text inside expander details */
-    }
-
-    /* Dataframe styling */
-    .dataframe {
-        background-color: #1F2228; /* Match tab content background */
-        color: #FAFAFA;
-        border-radius: 8px;
-        overflow: hidden; /* Ensures rounded corners are visible */
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
-    }
-    .dataframe th {
-        background-color: #2A2E35; /* Darker header */
-        color: #FAFAFA;
-        padding: 12px 15px;
-        border-bottom: 1px solid #444;
-        font-weight: bold;
-    }
-    .dataframe td {
-        color: #FAFAFA;
-        padding: 10px 15px;
-        border-bottom: 1px solid #2A2E35; /* Subtle row separator */
-    }
-    .dataframe tr:nth-child(even) {
-        background-color: #212529; /* Slightly different for even rows */
-    }
-    .dataframe tr:hover {
-        background-color: #2A2E35; /* Hover effect for rows */
-    }
-
-    /* Input widgets (multiselect, selectbox, slider) */
+    /* Input widgets */
     div[data-testid="stMultiSelect"] > div > div:first-child,
-    div[data-testid="stSelectbox"] > div > div:first-child,
-    div[data-testid="stSlider"] .st-emotion-cache-1ux495f {
-        background-color: #2A2E35; /* Dark background for inputs */
-        border: 1px solid #444;
-        border-radius: 8px;
-        color: #FAFAFA;
-        padding: 5px 10px;
-        box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.2);
+    div[data-testid="stSelectbox"] > div > div:first-child {
+        background: rgba(20, 25, 38, 0.8) !important;
+        border: 1px solid rgba(64, 128, 255, 0.2);
+        border-radius: 10px;
+        padding: 10px 15px; /* Adjusted padding */
+        min-height: 3.5rem; /* Added min-height for consistent box size */
+        display: flex; /* Ensure content is centered vertically */
+        align-items: center; /* Center content vertically */
     }
-    div[data-testid="stMultiSelect"] input,
-    div[data-testid="stSelectbox"] input {
-        color: #FAFAFA;
-        background-color: transparent; /* Ensure input text color is visible */
+    /* Set font color for text inside multiselect/selectbox to orange */
+    div[data-testid="stMultiSelect"] .st-emotion-cache-1gx59c3, /* Selected items in multiselect */
+    div[data-testid="stMultiSelect"] input[type="text"], /* Input field for typing in multiselect */
+    div[data-testid="stSelectbox"] .st-emotion-cache-1gx59c3, /* Selected item in selectbox */
+    div[data-testid="stSelectbox"] input[type="text"] { /* Input field in selectbox */
+        color: #FD7E14 !important; /* Force orange color for the text */
     }
-    div[data-testid="stMultiSelect"] .st-emotion-cache-1gx59c3, /* Placeholder/selected items */
-    div[data-testid="stSelectbox"] .st-emotion-cache-1gx59c3 {
-        color: #FAFAFA;
+    /* Specific targeting for the dropdown caret/arrow */
+    div[data-testid="stSelectbox"] > div > div:first-child > div[data-testid="stMarkdownContainer"] {
+        padding-right: 2rem; /* Add space for the caret */
     }
+    div[data-testid="stSelectbox"] .st-emotion-cache-vdhr9d svg { /* Targets the SVG of the caret icon */
+        fill: #FD7E14 !important; /* Set caret color to orange */
+    }
+    
     /* Options in dropdowns */
     .st-emotion-cache-1xarl3l { /* Dropdown menu background */
-        background-color: #2A2E35;
-        border: 1px solid #444;
-        border-radius: 8px;
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+        background: rgba(26, 32, 48, 0.95) !important;
+        border: 1px solid rgba(64, 128, 255, 0.3);
+        border-radius: 10px;
+        backdrop-filter: blur(10px);
     }
     .st-emotion-cache-1xarl3l div[role="option"] {
-        color: #FAFAFA;
+        color: #FFFFFF;
         padding: 8px 12px;
     }
     .st-emotion-cache-1xarl3l div[role="option"]:hover,
     .st-emotion-cache-1xarl3l div[aria-selected="true"] {
-        background-color: #007BFF; /* Highlight on hover/selected */
+        background: #4A8BFF; /* Highlight on hover/selected */
         color: white;
     }
     /* Slider specific styling */
-    .stSlider .st-emotion-cache-1f81tsl { /* Slider track */
-        background-color: #444;
+    div[data-testid="stSlider"] .st-emotion-cache-1ux495f {
+        background: rgba(20, 25, 38, 0.8); /* Dark background for slider track area */
+        border: 1px solid rgba(64, 128, 255, 0.2);
+        border-radius: 8px;
+        color: #FFFFFF;
+        padding: 5px 10px; /* Adjust padding for slider value display */
+        box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.2);
+    }
+    .stSlider .st-emotion-cache-1f81tsl { /* Slider track itself */
+        background: #5A7CA3;
     }
     .stSlider .st-emotion-cache-1f81tsl > div { /* Slider fill */
-        background-color: #007BFF;
+        background: #4A8BFF;
     }
     .stSlider .st-emotion-cache-17l1x26 { /* Slider thumb */
-        background-color: #007BFF;
-        border: 2px solid #FAFAFA;
+        background: #4A8BFF;
+        border: 2px solid #FFFFFF;
     }
 
-
-    /* Headers and titles */
-    h1, h2, h3, h4, h5, h6 {
-        color: #FAFAFA; /* White for all headers */
-    }
-
-    /* Markdown text */
-    p {
-        color: #CCCCCC; /* Light gray for general text */
-    }
-
-    /* Plotly container background */
-    .stPlotlyChart {
-        background-color: #1F2228; /* Match tab content/dataframe background */
-        border-radius: 10px;
-        padding: 15px;
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
-    }
-
-    /* Matplotlib plot container */
-    div[data-testid="stFigure"] {
-        background-color: #1F2228;
-        border-radius: 10px;
-        padding: 15px;
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
-    }
-
-    /* Streamlit components specific for the screenshot */
-    div[data-testid="stVerticalBlock"] div[data-testid="stVerticalBlock"] {
-        background-color: transparent !important; /* To prevent nested blocks from having colored backgrounds */
-    }
-
-    /* Folium map container */
-    .folium-map {
-        border-radius: 10px;
-        overflow: hidden;
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
-    }
-
-    /* Specific CSS for `st.button` for a more elegant look */
-    .st-emotion-cache-19p3v54 { /* This targets the button element's wrapper */
-        background-color: #007BFF; /* Bootstrap Blue for buttons */
-        color: white;
+    /* Info, Success, Warning Alert Styling */
+    div[data-testid="stAlert"] {
         border-radius: 8px;
+        font-weight: 500;
+        margin-bottom: 15px;
+        padding: 15px 20px;
+        color: #E0E0E0; /* Default text for alerts */
         border: none;
-        padding: 10px 20px;
-        font-weight: bold;
-        cursor: pointer;
-        transition: background-color 0.3s ease, transform 0.2s ease;
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
     }
-    .st-emotion-cache-19p3v54:hover {
-        background-color: #0056B3; /* Darker blue on hover */
-        transform: translateY(-2px); /* Slight lift on hover */
+    div[data-testid="stAlert"] .st-emotion-cache-v06ywu { /* Success */
+        background-color: rgba(46, 204, 113, 0.2) !important;
+        border-left: 5px solid #2ECC71 !important;
+        color: #E0E0E0 !important;
+    }
+    div[data-testid="stAlert"] .st-emotion-cache-1jmveo { /* Info (general alert, used for info/warning unless specific target is hit) */
+        background-color: rgba(74, 139, 255, 0.15) !important;
+        border-left: 5px solid #4A8BFF !important;
+        color: #E0E0E0 !important;
+    }
+    div[data-testid="stAlert"] .st-emotion-cache-1y5v8a8 { /* Info specific */
+        background-color: rgba(74, 139, 255, 0.15) !important;
+        border-left: 5px solid #4A8BFF !important;
+        color: #E0E0E0 !important;
+    }
+    div[data-testid="stAlert"] .st-emotion-cache-1f1i1k7 { /* Warning */
+        background-color: rgba(255, 126, 95, 0.15) !important;
+        border-left: 5px solid #FF7E5F !important;
+        color: #E0E0E0 !important;
+    }
+    div[data-testid="stAlert"] .st-emotion-cache-gsvt5j p { /* Error */
+        color: #E0E0E0 !important;
     }
 
-    /* For dataframes (more specific targets for clearer styling) */
-    .st-emotion-cache-1mmp0p3 thead th { /* Table header */
-        background-color: #2A2E35;
-        color: #FAFAFA;
+    /* Plot containers */
+    .stPlotlyChart, div[data-testid="stFigure"], .folium-map {
+        background: rgba(20, 25, 38, 0.7);
+        border-radius: 12px;
+        padding: 15px;
+        border: 1px solid rgba(64, 128, 255, 0.15);
+        box-shadow: 0 8px 24px rgba(0, 15, 40, 0.2);
+    }
+    /* Dataframes */
+    .dataframe {
+        background: rgba(20, 25, 38, 0.7);
+        border-radius: 10px;
+        border: 1px solid rgba(64, 128, 255, 0.1);
+        overflow: hidden; /* Ensure rounded corners are visible */
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+    }
+    .dataframe th {
+        background: rgba(30, 40, 60, 0.8);
+        color: #FFFFFF;
+        font-weight: 600;
+        padding: 12px 15px;
         border-bottom: 1px solid #444;
-        font-size: 0.95rem;
     }
-    .st-emotion-cache-1mmp0p3 tbody tr { /* Table rows */
-        background-color: #1F2228;
-        color: #FAFAFA;
+    .dataframe td {
+        color: #E0E0E0;
+        padding: 10px 15px;
+        border-bottom: 1px solid rgba(25, 35, 55, 0.5); /* Subtle row separator */
     }
-    .st-emotion-cache-1mmp0p3 tbody tr:nth-child(even) {
-        background-color: #212529; /* Alternate row color */
+    .dataframe tr:nth-child(even) {
+        background: rgba(25, 35, 55, 0.5);
     }
-    .st-emotion-cache-1mmp0p3 tbody tr:hover {
-        background-color: #2A2E35; /* Hover effect for rows */
+    .dataframe tr:hover {
+        background: rgba(40, 60, 100, 0.4);
     }
-
+    /* Custom decorations */
+    .glow-text {
+        text-shadow: 0 0 12px rgba(100, 180, 255, 0.7);
+    }
+    
+    .section-divider {
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(74, 139, 255, 0.5), transparent);
+        margin: 30px 0;
+        border: none;
+    }
+    
+    .feature-card {
+        background: rgba(20, 25, 38, 0.6);
+        border-radius: 10px;
+        padding: 20px;
+        margin: 15px 0;
+        border: 1px solid rgba(64, 128, 255, 0.15);
+        box-shadow: 0 6px 18px rgba(0, 15, 40, 0.2);
+        transition: all 0.3s ease;
+    }
+    
+    .feature-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 10px 25px rgba(0, 20, 60, 0.3);
+        border-color: rgba(74, 139, 255, 0.3);
+    }
     /* CSS for parallel coordinates */
     .parcoords > svg > g > g.tick > text {
-        fill: #FAFAFA !important; /* White text for ticks */
+        fill: #E0E0E0 !important; /* White text for ticks */
         font-size: 12px !important;
     }
     .parcoords > svg > g > g.tick > line {
-        stroke: #007BFF !important; /* Blue lines for ticks */
+        stroke: #4A8BFF !important; /* Blue lines for ticks */
     }
 </style>
 """, unsafe_allow_html=True)
 
 # --- Introduction ---
-st.title(f"  🌏   The Longevity Puzzle: Unlocking the Secrets to a Longer Life in East Asia & Pacific: {st.session_state.selected_region_display}")
-st.markdown("""
+st.title(" 🌿  The Longevity Puzzle: Unlocking the Secrets to a Longer Life")
+st.markdown(f"""
 <div class="intro-box">
-    <h3>Uncover What Shapes a Longer Life</h3>
-    <p>This dashboard delves into the critical socioeconomic and health forces that influence life expectancy across diverse regions. Upload your dataset to unlock insights that could drive meaningful change.</p>
+    <h3 class="glow-text">Uncover What Shapes a Longer Life</h3>
+    <p style="font-size: 1.1rem; line-height: 1.7; color: #CCD6E0;">
+        This dashboard explores the socioeconomic and health factors influencing life expectancy across diverse regions. 
+        Analyze trends, correlations, and predictive models to uncover insights that could drive meaningful change.
+    </p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -415,10 +361,10 @@ def load_data(uploaded_file):
         st.error(f"Error loading data: {e}")
         return None
 
-uploaded_file = st.sidebar.file_uploader("Upload Life Expectancy Data (CSV/XLSX)", type=["csv", "xlsx"])
+uploaded_file = st.sidebar.file_uploader(" 📤  Upload Life Expectancy Data (CSV/XLSX)", type=["csv", "xlsx"])
 df = None
 if uploaded_file is not None:
-    with st.spinner('Analyzing data...'):
+    with st.spinner(' 🔍  Analyzing data...'):
         df = load_data(uploaded_file)
         if df is not None:
             REQUIRED_COLUMNS = ['life_expectancy', 'country_name', 'year']
@@ -426,9 +372,9 @@ if uploaded_file is not None:
             if missing:
                 st.error(f"Missing required columns for analysis: {', '.join(missing)}. Please upload a dataset containing these columns.")
                 st.stop() 
-            st.success("  ✅   Data loaded successfully!")
+            st.success(" ✅  Data loaded successfully!")
             
-            # Display metrics using Streamlit's native metric component
+            # Display metrics
             cols = st.columns(4)
             with cols[0]:
                 if 'life_expectancy' in df.columns:
@@ -448,7 +394,7 @@ if uploaded_file is not None:
             st.info("Uploaded file could not be processed. Please check the file format or its content.")
 else:
     if 'initial_load' not in st.session_state or not st.session_state.initial_load:
-        st.info("Please upload a dataset to begin analysis.")
+        st.info(" ℹ️  Please upload a dataset to begin analysis.")
 
 filtered_df = pd.DataFrame(columns=df.columns) if df is not None else pd.DataFrame()
 selected_countries = []
@@ -463,7 +409,7 @@ if df is not None:
     df.dropna(subset=['country_name'], inplace=True)
 
     # --- Sidebar Filters ---
-    st.sidebar.header("Data Filters")
+    st.sidebar.header(" 🔍  Data Filters")
     years = sorted(df['year'].unique())
     selected_years = []
     if len(years) > 0:
@@ -518,14 +464,15 @@ if df is not None:
         filtered_df = pd.DataFrame(columns=df.columns)
     num_cols_filtered = filtered_df.select_dtypes(include=['number']).columns if not filtered_df.empty else pd.Index([])
 
-    # --- Conditional Display of Tabs based on filtered_df content ---
+    # --- Conditional Display of Tabs ---
     if not filtered_df.empty:
-        tab1, tab2, tab3, tab4, tab5 = st.tabs([
-            "  📊   Overview",
-            "  📈   Relationships",
-            "  🗺️   Geographic",
-            "  🔍   Deep Analysis",
-            "  💡   Recommendations"
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+            " 📊  Overview",
+            " 📈  Relationships",
+            " 🗺️  Geographic",
+            " 🔍  Deep Analysis",
+            " 💡  Recommendations",
+            " 🧠  Advanced Analytics"
         ])
 
         with tab1:
@@ -544,7 +491,7 @@ if df is not None:
                 if 'school_enrollment_combined' in num_cols_filtered:
                     st.metric("School Enrollment", f"{filtered_df['school_enrollment_combined'].mean():.1f}%")
             
-            with st.expander("  📋   Summary Statistics"):
+            with st.expander(" 📋  Summary Statistics"):
                 st.write(filtered_df.describe())
 
             if 'year' in filtered_df.columns and 'life_expectancy' in filtered_df.columns:
@@ -554,48 +501,36 @@ if df is not None:
                     country_time_series_df = df[df['country_name'] == country].set_index('year')['life_expectancy'].sort_index()
                     if len(country_time_series_df) > 2:
                         plt.style.use('seaborn-v0_8-darkgrid')
-                        decomposition = seasonal_decompose(country_time_series_df, model='additive', period=1) # Adjust period as needed
+                        decomposition = seasonal_decompose(country_time_series_df, model='additive', period=1)
                         fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(14, 12), sharex=True)
-                        fig.patch.set_facecolor('#1F2228') # Consistent dark background for Matplotlib figure
-                        ax1.set_facecolor('#212529') # Consistent dark background for Matplotlib axes
-                        ax2.set_facecolor('#212529')
-                        ax3.set_facecolor('#212529')
-                        ax1.plot(decomposition.trend, color='#007BFF', linewidth=2) # Consistent blue line
-                        ax1.set_title('Trend Component', fontsize=16, color='#FAFAFA')
-                        ax1.set_ylabel('Life Expectancy', fontsize=12, color='#FAFAFA')
-                        ax1.tick_params(axis='x', colors='#FAFAFA')
-                        ax1.tick_params(axis='y', colors='#FAFAFA')
-                        ax1.grid(True, linestyle='--', alpha=0.5, color='#6C757D') # Softer grid lines
-                        ax2.plot(decomposition.seasonal, color='#28A745', linewidth=1.5) # Consistent green line
-                        ax2.set_title('Seasonal Component', fontsize=16, color='#FAFAFA')
-                        ax2.set_ylabel('Seasonality', fontsize=12, color='#FAFAFA')
-                        ax2.tick_params(axis='x', colors='#FAFAFA')
-                        ax2.tick_params(axis='y', colors='#FAFAFA')
-                        ax2.grid(True, linestyle='--', alpha=0.5, color='#6C757D')
-                        ax3.plot(decomposition.resid, color='#FD7E14', linewidth=1) # Consistent orange line
-                        ax3.set_title('Residuals Component', fontsize=16, color='#FAFAFA')
-                        ax3.set_xlabel('Year', fontsize=12, color='#FAFAFA')
-                        ax3.set_ylabel('Residual', fontsize=12, color='#FAFAFA')
-                        ax3.tick_params(axis='x', colors='#FAFAFA')
-                        ax3.tick_params(axis='y', colors='#FAFAFA')
-                        ax3.grid(True, linestyle='--', alpha=0.5, color='#6C757D')
-                        fig.suptitle(f'Time Series Decomposition for {country.title()} Life Expectancy', fontsize=20, color='#FAFAFA')
+                        fig.patch.set_facecolor('#0A0E17')
+                        ax1.set_facecolor('#141A29')
+                        ax2.set_facecolor('#141A29')
+                        ax3.set_facecolor('#141A29')
+                        ax1.plot(decomposition.trend, color='#4A8BFF', linewidth=2)
+                        ax1.set_title('Trend Component', fontsize=16, color='#FFFFFF')
+                        ax1.set_ylabel('Life Expectancy', fontsize=12, color='#E0E0E0')
+                        ax1.tick_params(axis='x', colors='#9DB5CE')
+                        ax1.tick_params(axis='y', colors='#9DB5CE')
+                        ax1.grid(True, linestyle='--', alpha=0.3, color='#5A7CA3')
+                        ax2.plot(decomposition.seasonal, color='#2ECC71', linewidth=1.5)
+                        ax2.set_title('Seasonal Component', fontsize=16, color='#FFFFFF')
+                        ax2.set_ylabel('Seasonality', fontsize=12, color='#E0E0E0')
+                        ax2.tick_params(axis='x', colors='#9DB5CE')
+                        ax2.tick_params(axis='y', colors='#9DB5CE')
+                        ax2.grid(True, linestyle='--', alpha=0.3, color='#5A7CA3')
+                        ax3.plot(decomposition.resid, color='#FF7E5F', linewidth=1)
+                        ax3.set_title('Residuals Component', fontsize=16, color='#FFFFFF')
+                        ax3.set_xlabel('Year', fontsize=12, color='#E0E0E0')
+                        ax3.set_ylabel('Residual', fontsize=12, color='#E0E0E0')
+                        ax3.tick_params(axis='x', colors='#9DB5CE')
+                        ax3.tick_params(axis='y', colors='#9DB5CE')
+                        ax3.grid(True, linestyle='--', alpha=0.3, color='#5A7CA3')
+                        fig.suptitle(f'Time Series Decomposition for {country.title()} Life Expectancy', 
+                                     fontsize=20, color='#FFFFFF')
                         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
                         st.pyplot(fig)
                         plt.close(fig)
-                        st.info("""
-                        **Notes on Seasonal and Residual Plots:**
-                        If the 'Seasonal Component' and 'Residual Component' plots appear flat, this often means the `period` parameter in the `seasonal_decompose` function is set to `1`. For annual data, setting `period=1` implies no seasonality within one year, so these components will reflect this assumption. If you expect longer-term seasonal cycles (e.g., cycles spanning several years), you need to adjust the `period` parameter to the length of that cycle.
-                        
-                        **Interpreting the Seasonal Component:**
-                        * **Flat Line:** Indicates no detectable repeating patterns within the specified `period`. For annual data with `period=1`, this is expected as there's no intra-year seasonality.
-                        * **Fluctuating Pattern:** If `period` is set appropriately (e.g., if you had monthly data and `period=12`), a fluctuating line would reveal consistent, repeating patterns or cycles in life expectancy that occur regularly over that period. This could highlight annual health trends or policy impacts.
-                        
-                        **Interpreting the Residuals Component:**
-                        * **Random Scatter (around zero):** This is the ideal outcome. It suggests that the trend and seasonal components have successfully captured most of the underlying patterns in the data, leaving only random noise. This implies the model is a good fit.
-                        * **Patterns or Trends:** If the residuals show noticeable patterns (e.g., a rising or falling trend, or clear cycles), it indicates that the model has not fully captured all the systematic information in the data. This might suggest the need for a more complex model or different features.
-                        * **Large Spikes:** Could indicate outliers or unusual events that significantly impacted life expectancy during those periods. Further investigation into these specific points might reveal external factors.
-                        """)
                     else:
                         st.warning("Insufficient data for time series decomposition (requires at least 3 data points for one country across years).")
                 else:
@@ -626,7 +561,7 @@ if df is not None:
                     z=clustered_corr.values,
                     x=clustered_corr.columns,
                     y=clustered_corr.index,
-                    colorscale='Viridis', # Changed to Viridis for better contrast on dark theme
+                    colorscale='Viridis',
                     zmin=-1,
                     zmax=1,
                     text=np.round(clustered_corr.values, 2),
@@ -639,9 +574,9 @@ if df is not None:
                     xaxis_title="Features",
                     yaxis_title="Features",
                     template="plotly_dark", 
-                    paper_bgcolor='#1F2228', # Consistent dark background
-                    plot_bgcolor='#212529', # Consistent dark background
-                    font=dict(color='#FAFAFA')
+                    paper_bgcolor='#141A29',
+                    plot_bgcolor='#1A2235',
+                    font=dict(color='#E0E0E0')
                 )
                 st.plotly_chart(fig_corr, use_container_width=True)
                 
@@ -653,14 +588,16 @@ if df is not None:
                 
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.write("**Top Positive Correlations:**")
+                    st.markdown("#### Top Positive Correlations")
                     for _, row in top_corrs.iterrows():
-                        st.markdown(f"- **{row['Var1'].replace('_', ' ').title()}** & **{row['Var2'].replace('_', ' ').title()}**: {row['Correlation']:.2f}")
+                        st.markdown(f"<div class='feature-card'><b>{row['Var1'].replace('_', ' ').title()}</b> & <b>{row['Var2'].replace('_', ' ').title()}</b><br>Correlation: <b style='color:#4A8BFF'>{row['Correlation']:.2f}</b></div>", 
+                                    unsafe_allow_html=True)
                 
                 with col2:
-                    st.write("**Top Negative Correlations:**")
+                    st.markdown("#### Top Negative Correlations")
                     for _, row in bottom_corrs.iterrows():
-                        st.markdown(f"- **{row['Var1'].replace('_', ' ').title()}** & **{row['Var2'].replace('_', ' ').title()}**: {row['Correlation']:.2f}")
+                        st.markdown(f"<div class='feature-card'><b>{row['Var1'].replace('_', ' ').title()}</b> & <b>{row['Var2'].replace('_', ' ').title()}</b><br>Correlation: <b style='color:#FF7E5F'>{row['Correlation']:.2f}</b></div>", 
+                                    unsafe_allow_html=True)
             else:
                 st.info("Please select at least two numerical variables to view the correlation matrix.")
 
@@ -676,60 +613,54 @@ if df is not None:
                 - Numerical columns scaled  
                 """)
             
-            st.info("""
-            **Mapping Note:** This interactive map visualizes life expectancy by country.
-            Countries are identified using ISO 3-letter country codes derived from their names.
-            """)
+            st.info("**Mapping Note:** Countries are identified using ISO 3-letter country codes derived from their names.")
             
             if 'year' in df.columns and 'country_name' in df.columns and not filtered_df.empty:
                 st.subheader("Interactive World Map")
                 
-                # Create ISO alpha3 country codes
                 def get_iso_alpha3(country_name):
                     try:
                         return pycountry.countries.search_fuzzy(country_name)[0].alpha_3
                     except:
                         return None
                         
-                # Rename the column from 'iso_alpha3' to 'Name' as requested
                 filtered_df['Name'] = filtered_df['country_name'].apply(get_iso_alpha3)
-
                 map_df = filtered_df.groupby('country_name').agg({
                     'life_expectancy': 'mean',
                     'gdp_per_capita': 'mean',
-                    'Name': 'first' # Use 'Name' here
-                }).reset_index().dropna(subset=['Name']) # Drop rows where ISO code couldn't be found
+                    'Name': 'first'
+                }).reset_index().dropna(subset=['Name'])
                 
                 if not map_df.empty:
                     fig_map = px.choropleth(
                         map_df,
-                        locations="Name",  # Use 'Name' for locations
-                        color='life_expectancy', # Color by life expectancy
+                        locations="Name",
+                        color='life_expectancy',
                         hover_name="country_name",
                         hover_data=['gdp_per_capita'],
-                        color_continuous_scale='Plasma', # Plasma color scale, matching Plotly defaults for dark theme
+                        color_continuous_scale='Plasma',
                         title="Global Life Expectancy Distribution",
                         height=700
                     )
                     fig_map.update_layout(
                         height=700,
-                        template="plotly_dark", # Dark theme for the map
-                        paper_bgcolor='#1F2228', # Background color for the paper
-                        plot_bgcolor='#212529', # Background color for the plot area
-                        font=dict(color='#FAFAFA'), # Font color for text
+                        template="plotly_dark",
+                        paper_bgcolor='#141A29',
+                        plot_bgcolor='#1A2235',
+                        font=dict(color='#E0E0E0'),
                         geo=dict(
-                            bgcolor='rgba(0,0,0,0)', # Transparent background for the geographical area
-                            lakecolor='#17A2B8', # Teal for lakes
-                            landcolor='#2A2E35', # Darker land color
-                            showocean=True, # Show ocean
-                            oceancolor='#1F2228' # Ocean color matching background
+                            bgcolor='rgba(0,0,0,0)',
+                            lakecolor='#1F4E79',
+                            landcolor='#1A2235',
+                            showocean=True,
+                            oceancolor='#0A0E17'
                         )
                     )
                     st.plotly_chart(fig_map, use_container_width=True)
                 else:
-                    st.warning("Could not generate map - missing ISO country codes for selected countries or no data.")
+                    st.warning("Could not generate map - missing ISO country codes for selected countries.")
             else:
-                st.info("Geographic analysis requires 'year' and 'country_name' columns in the dataset, and selections to be made in the sidebar.")
+                st.info("Geographic analysis requires 'year' and 'country_name' columns in the dataset.")
 
         with tab4:
             st.subheader("Feature Impact Analysis")
@@ -749,7 +680,7 @@ if df is not None:
                         trendline='ols',
                         title=f"Life Expectancy vs {feature.replace('_', ' ').title()} (Correlation: {correlation:.2f})",
                         height=600,
-                        color_discrete_sequence=px.colors.qualitative.Plotly # Use Plotly's default qualitative colors
+                        color_discrete_sequence=px.colors.qualitative.Plotly
                     )
                     
                     global_avg = df.groupby('year')['life_expectancy'].mean().reset_index()
@@ -758,12 +689,12 @@ if df is not None:
                                       line_dash="dot",
                                       annotation_text="Global Average",
                                       annotation_position="bottom right",
-                                      line_color='#6C757D') # Softer line color
+                                      line_color='#9DB5CE')
                     fig.update_layout(
                         template="plotly_dark",
-                        paper_bgcolor='#1F2228',
-                        plot_bgcolor='#212529',
-                        font=dict(color='#FAFAFA'),
+                        paper_bgcolor='#141A29',
+                        plot_bgcolor='#1A2235',
+                        font=dict(color='#E0E0E0'),
                         hovermode='closest'
                     )
                     st.plotly_chart(fig, use_container_width=True)
@@ -781,24 +712,24 @@ if df is not None:
                             )
                             fig_box.update_layout(
                                 template="plotly_dark",
-                                paper_bgcolor='#1F2228',
-                                plot_bgcolor='#212529',
-                                font=dict(color='#FAFAFA')
+                                paper_bgcolor='#141A29',
+                                plot_bgcolor='#1A2235',
+                                font=dict(color='#E0E0E0')
                             )
                             st.plotly_chart(fig_box, use_container_width=True)
                         except Exception as e:
-                            st.warning(f"Could not create bins for '{feature}': {e}. Skipping box plot.")
+                            st.warning(f"Could not create bins for '{feature}': {e}")
 
             st.subheader("Predictive Modeling: Factors Influencing Life Expectancy")
-            st.markdown("Build a simple predictive model to understand feature importance.")
+            st.markdown("Build a model to understand feature importance.")
             target = 'life_expectancy'
             
             potential_features = [col for col in num_cols_filtered if col != target and col not in ['year']]
             
             if not potential_features:
-                st.warning("No suitable numerical features found for predictive modeling after filtering.")
+                st.warning("No suitable numerical features found for modeling.")
             elif filtered_df.empty:
-                st.info("Filtered dataset is empty, cannot perform predictive modeling.")
+                st.info("Filtered dataset is empty.")
             else:
                 selected_model_features = st.multiselect(
                     "Select features for predictive model",
@@ -808,32 +739,32 @@ if df is not None:
                 if selected_model_features:
                     clean_df = filtered_df[[target] + selected_model_features].dropna()
                     
-                    min_total_samples_for_model = 10
+                    min_total_samples_for_model = 5 
                     
                     if len(clean_df) < min_total_samples_for_model:
-                        st.warning(f"Insufficient complete data rows ({len(clean_df)} samples) for predictive modeling. "
-                                   f"Please ensure at least {min_total_samples_for_model} samples after selecting features and handling missing values.")
+                        st.warning(f"Insufficient data rows ({len(clean_df)} samples) for modeling. Minimum required: {min_total_samples_for_model}.")
                     else: 
                         X_clean = clean_df[selected_model_features]
                         y_clean = clean_df[target]
                         if len(np.unique(y_clean)) <= 1:
-                            st.warning("Insufficient variation in target (life expectancy) for predictive modeling. All values are the same or too few unique values.")
+                            st.warning("Insufficient variation in target values.")
                         else:
-                            min_splits_cv = 5
-                            max_test_size = 1 - (min_splits_cv / len(clean_df))
-                            test_size_val = max(0.1, min(0.5, max_test_size))
-                            X_train, X_test, y_train, y_test = train_test_split(X_clean, y_clean, test_size=test_size_val, random_state=42)
+                            scaler = StandardScaler()
+                            X_scaled = scaler.fit_transform(X_clean)
                             
+                            X_train, X_test, y_train, y_test = train_test_split(X_scaled, y_clean, test_size=0.2, random_state=42)
+
                             n_samples_train = len(X_train)
-                            n_splits_adjusted = min(n_samples_train, min_splits_cv)
+                            min_splits_cv = 5
+                            # Adjusted n_splits_adjusted to ensure it's less than n_samples_train or 2 if n_samples_train is tiny.
+                            n_splits_adjusted = max(2, min(n_samples_train - 1, min_splits_cv)) if n_samples_train > 1 else 1 
+                            # If n_samples_train is 1, n_splits_adjusted becomes 1, so Ridge will be used.
                             
                             if n_splits_adjusted < 2:
-                                scaler = StandardScaler()
-                                X_train_scaled = scaler.fit_transform(X_train)
-                                X_test_scaled = scaler.transform(X_test)
+                                # Fallback to simple Ridge if not enough splits for CV
                                 model = Ridge(alpha=1.0)
-                                model.fit(X_train_scaled, y_train)
-                                y_pred = model.predict(X_test_scaled)
+                                model.fit(X_train, y_train)
+                                y_pred = model.predict(X_test)
                                 r2 = r2_score(y_test, y_pred)
                                 mse = mean_squared_error(y_test, y_pred)
                                 st.write(f"**Test Set R-squared:** {r2:.2f}")
@@ -844,20 +775,16 @@ if df is not None:
                                     'Coefficient': model.coef_
                                 }).sort_values('Coefficient', key=abs, ascending=False)
                             else:
-                                scaler = StandardScaler()
-                                X_train_scaled = scaler.fit_transform(X_train)
-                                X_test_scaled = scaler.transform(X_test) 
                                 alphas = [0.001, 0.01, 0.1, 1, 10, 100]
                                 model = RidgeCV(alphas=alphas, cv=n_splits_adjusted) 
-                                model.fit(X_train_scaled, y_train)
+                                model.fit(X_train, y_train)
                                 
-                                kfold = KFold(n_splits=n_splits_adjusted, shuffle=True, random_state=42)
-                                cv_scores = cross_val_score(model, X_train_scaled, y_train,
-                                                            cv=kfold, scoring='r2')
+                                # Removed the separate cross_val_score call.
+                                # Rely on model.best_score_ for internal CV score.
                                 st.write(f"**Best Alpha (Regularization):** {model.alpha_:.4f}")
-                                st.write(f"**Average CV R-squared:** {cv_scores.mean():.2f}")
+                                st.write(f"**Internal CV R-squared:** {model.best_score_:.2f}") 
                                 
-                                y_pred = model.predict(X_test_scaled)
+                                y_pred = model.predict(X_test)
                                 r2 = r2_score(y_test, y_pred)
                                 mse = mean_squared_error(y_test, y_pred)
                                 
@@ -869,27 +796,32 @@ if df is not None:
                                 
                                 st.write(f"**Test Set R-squared:** {r2:.2f}")
                                 st.write(f"**Mean Squared Error:** {mse:.2f}")
+                            
+                            # Store the trained model and scaler in session state
+                            st.session_state['trained_model'] = model
+                            st.session_state['scaler'] = scaler
+                            st.session_state['model_features'] = selected_model_features
+
                             st.subheader("Feature Importance (Coefficients)")
                             st.dataframe(st.session_state['feature_importance'])
                             fig_feature_imp = px.bar(st.session_state['feature_importance'], 
                                                     x='Coefficient', y='Feature', orientation='h', 
-                                                    title='Feature Impact (Coefficients) on Life Expectancy Prediction',
+                                                    title='Feature Impact on Life Expectancy Prediction',
                                                     height=600,
                                                     color_discrete_sequence=px.colors.qualitative.Plotly)
                             fig_feature_imp.update_layout(
                                 yaxis={'categoryorder':'total ascending'},
                                 template="plotly_dark",
-                                paper_bgcolor='#1F2228',
-                                plot_bgcolor='#212529',
-                                font=dict(color='#FAFAFA')
+                                paper_bgcolor='#141A29',
+                                plot_bgcolor='#1A2235',
+                                font=dict(color='#E0E0E0')
                             )
                             st.plotly_chart(fig_feature_imp, use_container_width=True)
                 else:
                     st.info("Select features to build a predictive model.")
             
-            # --- Improved Parallel Coordinates Plot ---
-            st.subheader("Multi-dimensional Data Relationships (Parallel Coordinates)")
-            st.markdown("Visualize patterns and clusters across multiple numerical features.")
+            st.subheader("Multi-dimensional Data Relationships")
+            st.markdown("Visualize patterns across multiple features.")
             parallel_coord_cols_options = [col for col in num_cols_filtered if col != 'year']
             categorical_color_options = []
             if 'country_name' in filtered_df.columns and filtered_df['country_name'].nunique() > 1 and len(filtered_df['country_name'].unique()) <= 50:
@@ -905,7 +837,7 @@ if df is not None:
             safe_default_pc_dimensions = [col for col in default_pc_dimensions if col in parallel_coord_cols_options]
             
             selected_parallel_cols = st.multiselect(
-                "Select variables for Parallel Coordinates dimensions",
+                "Select variables for Parallel Coordinates",
                 parallel_coord_cols_options,
                 default=safe_default_pc_dimensions
             )
@@ -916,18 +848,16 @@ if df is not None:
             )
             
             if selected_parallel_cols and len(selected_parallel_cols) > 1:
-                # Create a clean DataFrame with only the needed columns
                 cols_for_plot = list(set(selected_parallel_cols + ([color_choice] if color_choice != 'None' else [])))
                 pc_df = filtered_df[cols_for_plot].dropna().copy()
                 
                 if not pc_df.empty:
-                    # Create custom dimensions with proper ranges
                     dimensions = []
                     for col in selected_parallel_cols:
                         if col in pc_df.columns:
                             col_min = pc_df[col].min()
                             col_max = pc_df[col].max()
-                            range_buffer = (col_max - col_min) * 0.1 # 10% buffer for range
+                            range_buffer = (col_max - col_min) * 0.1
                             
                             dim_config = {
                                 "label": col.replace('_', ' ').title(),
@@ -935,17 +865,16 @@ if df is not None:
                                 "range": [col_min - range_buffer, col_max + range_buffer]
                             }
                             
-                            # Special handling for life expectancy
                             if col == 'life_expectancy':
-                                dim_config["range"] = [40, 90]  # Fixed range for better comparison
+                                dim_config["range"] = [40, 90]
                             
                             dimensions.append(dim_config)
                     
                     if len(dimensions) >= 2:
                         fig_par_coords = go.Figure(data=go.Parcoords(
                             line=dict(
-                                color=pc_df[color_choice] if color_choice != 'None' and color_choice in pc_df.columns else '#007BFF', # Consistent blue line if no color chosen
-                                colorscale='Viridis', # Use Viridis colorscale
+                                color=pc_df[color_choice] if color_choice != 'None' and color_choice in pc_df.columns else '#4A8BFF',
+                                colorscale='Viridis',
                                 showscale=True if color_choice != 'None' and color_choice in pc_df.columns else False,
                                 cmin=pc_df[color_choice].min() if color_choice != 'None' else None,
                                 cmax=pc_df[color_choice].max() if color_choice != 'None' else None
@@ -957,18 +886,18 @@ if df is not None:
                             title="Parallel Coordinates Analysis",
                             height=700,
                             template="plotly_dark",
-                            paper_bgcolor='#1F2228',
-                            plot_bgcolor='#212529',
-                            font=dict(color='#FAFAFA'),
+                            paper_bgcolor='#141A29',
+                            plot_bgcolor='#1A2235',
+                            font=dict(color='#E0E0E0'),
                             margin=dict(l=80, r=80, t=80, b=80)
                         )
                         st.plotly_chart(fig_par_coords, use_container_width=True)
                     else:
-                        st.info("Not enough valid dimensions to plot")
+                        st.info("Not enough dimensions to plot")
                 else:
                     st.info("No complete data for selected variables")
             else:
-                st.info("Please select at least two numerical variables")
+                st.info("Select at least two numerical variables")
 
         with tab5:
             st.header("Data-Driven Recommendations")
@@ -988,16 +917,24 @@ if df is not None:
                     
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.markdown("**Top Performers (Life Expectancy Growth)**")
+                        st.markdown("#### Top Performers")
                         for _, row in top_growth.iterrows():
-                            st.markdown(f"- **{row['country_name'].title()}**: +{row['le_growth']:.1f} years")
+                            st.markdown(f"<div class='feature-card'>"
+                                        f"<b>{row['country_name'].title()}</b><br>"
+                                        f"<span style='color:#4A8BFF'>+{row['le_growth']:.1f} years</span> "
+                                        f"({row['le_start']:.1f} → {row['le_end']:.1f})"
+                                        f"</div>", unsafe_allow_html=True)
                     
                     with col2:
-                        st.markdown("**Countries Needing Improvement**")
+                        st.markdown("#### Countries Needing Improvement")
                         for _, row in bottom_growth.iterrows():
-                            st.markdown(f"- **{row['country_name'].title()}**: {row['le_growth']:.1f} years")
+                            st.markdown(f"<div class='feature-card'>"
+                                        f"<b>{row['country_name'].title()}</b><br>"
+                                        f"<span style='color:#FF7E5F'>{row['le_growth']:.1f} years</span> "
+                                        f"({row['le_start']:.1f} → {row['le_end']:.1f})"
+                                        f"</div>", unsafe_allow_html=True)
                 else:
-                    st.info("Insufficient year data to calculate life expectancy growth. Please select multiple years.")
+                    st.info("Select multiple years to calculate life expectancy growth.")
                 
                 if len(selected_countries) > 1:
                     st.subheader("Country Comparison Analysis")
@@ -1028,17 +965,379 @@ if df is not None:
                         gap_df = pd.DataFrame(gap_analysis)
                         
                         st.write("**Performance Gap Compared to Baseline:**")
-                        st.dataframe(gap_df.style.background_gradient(cmap='RdYlGn', subset=['life_expectancy_gap', 'gdp_gap_percent', 'health_exp_gap_percent', 'education_gap'], axis=0))
+                        st.dataframe(gap_df.style.background_gradient(cmap='RdYlGn', 
+                                                                      subset=['life_expectancy_gap', 'gdp_gap_percent', 'health_exp_gap_percent', 'education_gap'], 
+                                                                      axis=0))
                     else:
                         st.info("Select a base country to perform gap analysis.")
                 else:
-                    st.info("Select more than one country in the sidebar to perform country comparison analysis.")
+                    st.info("Select more than one country to perform comparison analysis.")
             else:
                 st.info("Please ensure data is loaded and filtered to see recommendations.")
+        
+        with tab6: # New tab for Advanced Analytics
+            st.header(" 🧠  Advanced Analytics: Decision Support")
+            st.markdown("""
+            This section provides advanced analytical tools for deeper insights and policy decision support.
+            Explore predictive scenarios, conduct what-if analyses, and simulate policy impacts.
+            """)
+
+            # Ensure model and scaler are available
+            model = st.session_state.trained_model
+            scaler = st.session_state.scaler
+            features = st.session_state.model_features
+
+            if model is None or scaler is None or not features:
+                st.warning("Please train a predictive model in the 'Deep Analysis' tab first to enable Advanced Analytics.")
+            else:
+                st.markdown("---") # Visual separator
+
+                # ========================= #
+                # 1. Predictive Scenarios   #
+                # ========================= #
+                st.subheader("1. Predictive Scenarios: Future Projections")
+                st.markdown("""
+                Project life expectancy trends under different hypothetical GDP growth scenarios.
+                This assumes other factors change linearly based on historical data.
+                """)
+
+                scenario_countries = df['country_name'].unique().tolist()
+                selected_scenario_country = st.selectbox("Select Country for Projection", scenario_countries, key="proj_country")
+                
+                if selected_scenario_country:
+                    base_year_options = sorted(df[df['country_name'] == selected_scenario_country]['year'].unique().tolist(), reverse=True)
+                    if base_year_options:
+                        base_year = st.selectbox("Base Year for Projection", base_year_options, key="proj_base_year")
+                        projection_years = st.slider("Projection Years", 1, 30, 10, key="proj_years")
+                        gdp_growth_options = {
+                            "Low (1%)": 0.01,
+                            "Moderate (3%)": 0.03,
+                            "High (5%)": 0.05
+                        }
+                        selected_gdp_growths = st.multiselect(
+                            "Select GDP Growth Scenarios",
+                            list(gdp_growth_options.keys()),
+                            default=list(gdp_growth_options.keys())[1:2], # Default to Moderate
+                            key="proj_gdp_growth"
+                        )
+                        
+                        def predict_future(country, base_year, projection_years, gdp_growth_rates, model, features, df, scaler):
+                            """Project life expectancy under different GDP growth scenarios"""
+                            baseline_country_data = df[df['country_name'] == country].sort_values('year')
+                            if baseline_country_data.empty or base_year not in baseline_country_data['year'].values:
+                                return pd.DataFrame()
+                            
+                            last_data = baseline_country_data[baseline_country_data['year'] == base_year].iloc[0]
+                            projections = []
+                            
+                            # Calculate historical trends for non-gdp features
+                            hist_trends = {}
+                            for feature in features:
+                                if feature != 'gdp_per_capita' and feature in baseline_country_data.columns:
+                                    # Ensure there are at least two points to calculate change
+                                    if len(baseline_country_data[feature].dropna()) >= 2:
+                                        hist_trend = baseline_country_data[feature].pct_change().mean()
+                                        hist_trends[feature] = hist_trend if not np.isnan(hist_trend) else 0.0
+                                    else:
+                                        hist_trends[feature] = 0.0 # No historical trend if not enough data
+
+                            for growth_label in gdp_growth_rates:
+                                growth_rate = gdp_growth_options[growth_label]
+                                scenario_data = []
+                                current_data = last_data.copy()
+                                
+                                # Include baseline year in plot for context
+                                scenario_data.append(last_data.assign(gdp_growth=growth_label))
+
+                                for year in range(base_year + 1, base_year + projection_years + 1):
+                                    projection = current_data.copy()
+                                    projection['year'] = year
+                                    
+                                    # Apply GDP growth
+                                    if 'gdp_per_capita' in features:
+                                        projection['gdp_per_capita'] *= (1 + growth_rate)
+                                    
+                                    # Assume other factors change linearly (simplified)
+                                    for feature in features:
+                                        if feature != 'gdp_per_capita' and feature in projection.index:
+                                            projection[feature] *= (1 + hist_trends.get(feature, 0.0))
+                                    
+                                    # Prepare features for prediction, ensuring correct order and scaling
+                                    X_proj_df = pd.DataFrame([projection[features]])
+                                    X_proj_scaled = scaler.transform(X_proj_df)
+                                    
+                                    projection['life_expectancy'] = model.predict(X_proj_scaled)[0]
+                                    
+                                    scenario_data.append(projection.assign(gdp_growth=growth_label))
+                                    current_data = projection # Use as base for next year
+                                
+                                projections.append(pd.DataFrame(scenario_data))
+                            
+                            if projections:
+                                return pd.concat(projections).reset_index(drop=True)
+                            return pd.DataFrame()
+
+                        if st.button("Generate Projections", key="run_projections"):
+                            with st.spinner("Generating future scenarios..."):
+                                projections_df = predict_future(
+                                    selected_scenario_country,
+                                    base_year,
+                                    projection_years,
+                                    selected_gdp_growths,
+                                    model,
+                                    features,
+                                    df, # Pass original df for historical trends
+                                    scaler
+                                )
+                                if not projections_df.empty:
+                                    fig_proj = px.line(
+                                        projections_df,
+                                        x='year',
+                                        y='life_expectancy',
+                                        color='gdp_growth',
+                                        title=f'Life Expectancy Projections for {selected_scenario_country.title()}',
+                                        labels={'life_expectancy': 'Life Expectancy (years)', 'year': 'Year'},
+                                        markers=True,
+                                        color_discrete_sequence=px.colors.qualitative.Plotly
+                                    )
+                                    fig_proj.update_layout(
+                                        template="plotly_dark",
+                                        paper_bgcolor='#141A29',
+                                        plot_bgcolor='#1A2235',
+                                        font=dict(color='#E0E0E0')
+                                    )
+                                    st.plotly_chart(fig_proj, use_container_width=True)
+                                else:
+                                    st.warning("No projections could be generated for the selected country and year. Ensure data exists for the base year.")
+                    else:
+                        st.info(f"No year data available for {selected_scenario_country} to set a base year.")
+                else:
+                    st.info("Select a country to generate projections.")
+                
+                st.markdown("---") # Visual separator
+
+                # =================== #
+                # 2. What-If Analysis #
+                # =================== #
+                st.subheader("2. What-If Analysis: Intervention Impact")
+                st.markdown("""
+                Simulate the immediate impact of changes in a single key factor on life expectancy for a specific country and year.
+                """)
+
+                whatif_country_options = df['country_name'].unique().tolist()
+                selected_whatif_country = st.selectbox("Select Country for What-If", whatif_country_options, key="whatif_country")
+
+                if selected_whatif_country:
+                    whatif_year_options = sorted(df[df['country_name'] == selected_whatif_country]['year'].unique().tolist(), reverse=True)
+                    if whatif_year_options:
+                        selected_whatif_year = st.selectbox("Select Year for What-If", whatif_year_options, key="whatif_year")
+                    else:
+                        st.info(f"No year data available for {selected_whatif_country}.")
+                        selected_whatif_year = None
+                else:
+                    selected_whatif_year = None
+                
+                if selected_whatif_country and selected_whatif_year:
+                    
+                    baseline_data_row = df[(df['country_name'] == selected_whatif_country) & (df['year'] == selected_whatif_year)][features + ['life_expectancy']]
+                    
+                    if not baseline_data_row.empty:
+                        baseline_data_row = baseline_data_row.iloc[0]
+                        baseline_le = baseline_data_row['life_expectancy']
+
+                        whatif_feature_options = [f for f in features if f != 'life_expectancy']
+                        selected_whatif_feature = st.selectbox("Choose Feature for Intervention", whatif_feature_options, key="whatif_feature")
+
+                        if selected_whatif_feature:
+                            current_feature_value = baseline_data_row[selected_whatif_feature]
+                            if pd.isna(current_feature_value):
+                                st.warning(f"No data for '{selected_whatif_feature}' in {selected_whatif_country} for {selected_whatif_year}. Cannot perform what-if analysis on this feature.")
+                            else:
+                                st.write(f"Current {selected_whatif_feature.replace('_', ' ').title()}: **{current_feature_value:,.2f}**")
+                                
+                                value_change_type = st.radio(
+                                    "Change by:",
+                                    ("Percentage Change", "Absolute Change"),
+                                    key="whatif_change_type"
+                                )
+
+                                new_value = None
+                                if value_change_type == "Percentage Change":
+                                    percentage_change = st.slider("Percentage Change (%)", -50, 50, 10, key="whatif_perc_change")
+                                    new_value = current_feature_value * (1 + percentage_change / 100)
+                                else: # Absolute Change
+                                    # Determine a sensible range for the slider based on the feature's min/max
+                                    feature_min = df[selected_whatif_feature].min()
+                                    feature_max = df[selected_whatif_feature].max()
+                                    # Ensure the slider value is within reasonable bounds for absolute change
+                                    abs_change_default = (feature_max - feature_min) * 0.05 # 5% of range as default step
+                                    abs_change = st.number_input(
+                                        "Absolute Change",
+                                        value=abs_change_default if abs_change_default != 0 else 1.0,
+                                        min_value=float(feature_min - current_feature_value),
+                                        max_value=float(feature_max - current_feature_value),
+                                        step=(feature_max - feature_min) * 0.01 if (feature_max - feature_min) * 0.01 != 0 else 0.1,
+                                        key="whatif_abs_change",
+                                        format="%.2f"
+                                    )
+                                    new_value = current_feature_value + abs_change
+
+                                if st.button("Simulate What-If", key="simulate_whatif"):
+                                    scenario_data = baseline_data_row[features].copy()
+                                    scenario_data[selected_whatif_feature] = new_value
+
+                                    X_scenario_scaled = scaler.transform(pd.DataFrame([scenario_data]))
+                                    predicted_le = model.predict(X_scenario_scaled)[0]
+
+                                    st.markdown(f"**Scenario Result for {selected_whatif_country.title()} in {selected_whatif_year}:**")
+                                    st.write(f"Baseline Life Expectancy: **{baseline_le:.2f} years**")
+                                    st.write(f"Predicted Life Expectancy with modified {selected_whatif_feature.replace('_', ' ').title()} ({new_value:,.2f}): **{predicted_le:.2f} years**")
+                                    st.write(f"Change: **{(predicted_le - baseline_le):.2f} years**")
+
+                                    # Plot comparison
+                                    comparison_df = pd.DataFrame({
+                                        'Scenario': ['Baseline', 'Modified'],
+                                        'Life Expectancy': [baseline_le, predicted_le]
+                                    })
+                                    fig_whatif = px.bar(
+                                        comparison_df,
+                                        x='Scenario',
+                                        y='Life Expectancy',
+                                        color='Scenario',
+                                        title='Impact of Intervention on Life Expectancy',
+                                        color_discrete_map={'Baseline': '#4A8BFF', 'Modified': '#2ECC71'}
+                                    )
+                                    fig_whatif.update_layout(
+                                        template="plotly_dark",
+                                        paper_bgcolor='#141A29',
+                                        plot_bgcolor='#1A2235',
+                                        font=dict(color='#E0E0E0'),
+                                        yaxis_range=[min(baseline_le, predicted_le) * 0.95, max(baseline_le, predicted_le) * 1.05]
+                                    )
+                                    st.plotly_chart(fig_whatif, use_container_width=True)
+                        else:
+                            st.info("Select a feature to perform what-if analysis.")
+                    else:
+                        st.warning(f"No complete baseline data for {selected_whatif_country} in {selected_whatif_year} for the selected features.")
+                else:
+                    st.info("Select a country and year for what-if analysis.")
+                
+                st.markdown("---") # Visual separator
+
+                # ================================== #
+                # 3. Policy Impact Simulation        #
+                # ================================== #
+                st.subheader("3. Policy Impact Simulation: Interactive Explorer")
+                st.markdown("""
+                Interactively adjust multiple factors and observe the combined effect on predicted life expectancy.
+                """)
+
+                policy_country_options = df['country_name'].unique().tolist()
+                selected_policy_country = st.selectbox("Select Country for Simulation", policy_country_options, key="policy_country")
+
+                if selected_policy_country:
+                    policy_year_options = sorted(df[df['country_name'] == selected_policy_country]['year'].unique().tolist(), reverse=True)
+                    if policy_year_options:
+                        selected_policy_year = st.selectbox("Select Year for Simulation", policy_year_options, key="policy_year")
+                    else:
+                        st.info(f"No year data available for {selected_policy_country}.")
+                        selected_policy_year = None
+                else:
+                    selected_policy_year = None
+
+                if selected_policy_country and selected_policy_year:
+                    
+                    baseline_policy_data = df[(df['country_name'] == selected_policy_country) & (df['year'] == selected_policy_year)][features + ['life_expectancy']]
+                    
+                    if not baseline_policy_data.empty:
+                        baseline_policy_data = baseline_policy_data.iloc[0]
+                        base_le = baseline_policy_data['life_expectancy']
+                        
+                        st.markdown(f"**Baseline Life Expectancy for {selected_policy_country.title()} in {selected_policy_year}: {base_le:.2f} years**")
+                        st.markdown("Adjust the sliders below to create your policy scenario:")
+
+                        # Create sliders for each feature used in the model
+                        current_scenario_features = baseline_policy_data[features].copy()
+                        
+                        sliders_values = {}
+                        for feat in features:
+                            current_value = current_scenario_features[feat]
+                            if pd.isna(current_value):
+                                st.warning(f"Skipping slider for '{feat}' due to missing baseline data.")
+                                continue
+                            
+                            min_val = df[feat].min()
+                            max_val = df[feat].max()
+                            step_val = (max_val - min_val) / 50 if (max_val - min_val) > 0 else 0.1
+                            if step_val == 0: step_val = 0.1 # Prevent zero step if min/max are identical
+
+                            sliders_values[feat] = st.slider(
+                                f"Modify {feat.replace('_', ' ').title()}",
+                                min_value=float(min_val),
+                                max_value=float(max_val),
+                                value=float(current_value),
+                                step=float(step_val),
+                                key=f"policy_slider_{feat}"
+                            )
+                        
+                        modified_policy_scenario = pd.Series(sliders_values)
+                        
+                        if st.button("Simulate Policy Impact", key="run_policy_sim"):
+                            X_modified_scaled = scaler.transform(pd.DataFrame([modified_policy_scenario]))
+                            modified_le = model.predict(X_modified_scaled)[0]
+                            improvement = modified_le - base_le
+
+                            st.markdown(f"**Simulated Life Expectancy: {modified_le:.2f} years**")
+                            st.markdown(f"**Projected Change from Baseline: {improvement:.2f} years**")
+
+                            # Plotting feature importance (re-using model.coef_ from session state)
+                            if not st.session_state.feature_importance.empty:
+                                fig_feature_imp_sim = px.bar(st.session_state.feature_importance, 
+                                                            x='Coefficient', y='Feature', orientation='h', 
+                                                            title='Feature Importance in Prediction Model',
+                                                            height=400,
+                                                            color_discrete_sequence=px.colors.qualitative.Plotly)
+                                fig_feature_imp_sim.update_layout(
+                                    yaxis={'categoryorder':'total ascending'},
+                                    template="plotly_dark",
+                                    paper_bgcolor='#141A29',
+                                    plot_bgcolor='#1A2235',
+                                    font=dict(color='#E0E0E0')
+                                )
+                                st.plotly_chart(fig_feature_imp_sim, use_container_width=True)
+                            else:
+                                st.info("Feature importance data not available. Please train the model in 'Deep Analysis' first.")
+
+                            # Comparison plot
+                            comparison_sim_df = pd.DataFrame({
+                                'Scenario': ['Baseline', 'Simulated'],
+                                'Life Expectancy': [base_le, modified_le]
+                            })
+                            fig_sim_comp = px.bar(
+                                comparison_sim_df,
+                                x='Scenario',
+                                y='Life Expectancy',
+                                color='Scenario',
+                                title='Comparison: Baseline vs. Simulated Life Expectancy',
+                                color_discrete_map={'Baseline': '#4A8BFF', 'Simulated': '#2ECC71'}
+                            )
+                            fig_sim_comp.update_layout(
+                                template="plotly_dark",
+                                paper_bgcolor='#141A29',
+                                plot_bgcolor='#1A2235',
+                                font=dict(color='#E0E0E0'),
+                                yaxis_range=[min(base_le, modified_le) * 0.95, max(base_le, modified_le) * 1.05]
+                            )
+                            st.plotly_chart(fig_sim_comp, use_container_width=True)
+                    else:
+                        st.warning(f"No complete baseline data for {selected_policy_country} in {selected_policy_year} for the selected features.")
+                else:
+                    st.info("Select a country and year for policy impact simulation.")
+
     else:
         if uploaded_file is None:
             st.info("Upload a dataset to unlock all analysis features.")
         elif df is not None and (not selected_years or not selected_countries) and not df.empty:
-            st.info("Please make selections in the sidebar filters (Years and Countries) to view dashboard content. Currently no data is selected to display.")
+            st.info("Please make selections in the sidebar filters to view dashboard content.")
         elif df is not None and df.empty:
             st.info("Uploaded data is empty. Please upload a valid dataset.")
