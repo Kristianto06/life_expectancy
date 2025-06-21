@@ -37,7 +37,7 @@ if 'scaler' not in st.session_state:
 st.set_page_config(
     layout="wide",
     page_title="Life Expectancy Analysis Dashboard",
-    page_icon=" 🌿 "
+    page_icon=" 🌎 "
 )
 
 # --- Custom CSS for dark elegant theme ---
@@ -325,7 +325,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- Introduction ---
-st.title(" 🌿  The Longevity Puzzle: Unlocking the Secrets to a Longer Life")
+st.title(" 🌎  The Longevity Puzzle: Unlocking the Secrets to a Longer Life")
 st.markdown(f"""
 <div class="intro-box">
     <h3 class="glow-text">Uncover What Shapes a Longer Life</h3>
