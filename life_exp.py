@@ -7,14 +7,20 @@ import folium
 from streamlit_folium import st_folium
 import re
 from sklearn.linear_model import Ridge, RidgeCV
-from sklearn.model_selection import cross_val_score, KFold
-from sklearn.ensemble import RandomForestRegressor # Keep this if you plan to use it later, otherwise remove
-from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import cross_val_score, KFold, train_test_split
 from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.preprocessing import StandardScaler
 from statsmodels.tsa.seasonal import seasonal_decompose
 import matplotlib.pyplot as plt
 import pycountry
+import pandera as pa
+from pandera import Column, Check
+import time
+from io import BytesIO
+import joblib
+import scipy.stats as stats
+from copy import deepcopy # For cloning models for bootstrapping
 
 # --- Session State Initialization ---
 if 'selected_region_display' not in st.session_state:
@@ -31,13 +37,18 @@ if 'model_features' not in st.session_state:
     st.session_state.model_features = []
 if 'scaler' not in st.session_state:
     st.session_state.scaler = None
-
+if 'model_type' not in st.session_state:
+    st.session_state.model_type = "Ridge" # Default model type
+if 'X_train' not in st.session_state: # Store training data for bootstrapping
+    st.session_state.X_train = None
+if 'y_train' not in st.session_state: # Store training data for bootstrapping
+    st.session_state.y_train = None
 
 # --- Set page configuration ---
 st.set_page_config(
     layout="wide",
     page_title="Life Expectancy Analysis Dashboard",
-    page_icon=" 🌿 "
+    page_icon="  🌿  "
 )
 
 # --- Custom CSS for dark elegant theme ---
@@ -218,7 +229,6 @@ st.markdown("""
         background: #4A8BFF;
         border: 2px solid #FFFFFF;
     }
-
     /* Info, Success, Warning Alert Styling */
     div[data-testid="stAlert"] {
         border-radius: 8px;
@@ -251,7 +261,6 @@ st.markdown("""
     div[data-testid="stAlert"] .st-emotion-cache-gsvt5j p { /* Error */
         color: #E0E0E0 !important;
     }
-
     /* Plot containers */
     .stPlotlyChart, div[data-testid="stFigure"], .folium-map {
         background: rgba(20, 25, 38, 0.7);
@@ -325,7 +334,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- Introduction ---
-st.title(" 🌿  The Longevity Puzzle: Unlocking the Secrets to a Longer Life")
+st.title("  🌿   The Longevity Puzzle: Unlocking the Secrets to a Longer Life")
 st.markdown(f"""
 <div class="intro-box">
     <h3 class="glow-text">Uncover What Shapes a Longer Life</h3>
@@ -336,18 +345,36 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# --- Load Data ---
-@st.cache_data
-def load_data(uploaded_file):
+# --- Define Data Schema with Pandera ---
+def create_data_schema():
+    """Create Pandera schema for data validation"""
+    schema = pa.DataFrameSchema({
+        "country_name": Column(str, nullable=False),
+        "year": Column(int, Check.in_range(1900, 2100), nullable=False),
+        "life_expectancy": Column(float, Check.in_range(20, 120), nullable=False),
+        "gdp_per_capita": Column(float, Check.greater_than(0), nullable=True),
+        "health_expenditure_per_capita": Column(float, Check.greater_than_or_equal_to(0), nullable=True),
+        "school_enrollment_combined": Column(float, Check.in_range(0, 100), nullable=True), # This check will now pass after capping
+        "mortality_infant": Column(float, Check.greater_than(0), nullable=True),
+        "access_to_electricity": Column(float, Check.in_range(0, 100), nullable=True),
+        "population_growth_rate": Column(float, Check.in_range(-10, 10), nullable=True),
+    }, strict=False)  # Allow extra columns
+    return schema
+
+# --- Load Data with Validation ---
+@st.cache_data(show_spinner=False)
+def load_and_validate_data(uploaded_file):
+    """Load and validate data with Pandera schema"""
     try:
+        # Load data
         if uploaded_file.name.endswith('.csv'):
             df = pd.read_csv(uploaded_file)
         elif uploaded_file.name.endswith('.xlsx'):
             df = pd.read_excel(uploaded_file)
         else:
-            st.error("Unsupported file type. Please upload a CSV or XLSX file.")
-            return None
+            return None, "Unsupported file type. Please upload a CSV or XLSX file."
         
+        # Clean column names
         df.columns = (
             df.columns
             .astype(str)
@@ -356,23 +383,191 @@ def load_data(uploaded_file):
             .str.replace(r'[^a-z0-9_]+', '_', regex=True) 
             .str.strip('_') 
         )
-        return df
+
+        # --- Data Cleaning: Cap 'school_enrollment_combined' at 100 ---
+        if 'school_enrollment_combined' in df.columns:
+            # Convert to numeric first, coercing errors to NaN
+            df['school_enrollment_combined'] = pd.to_numeric(df['school_enrollment_combined'], errors='coerce')
+            # Cap values at 100
+            df['school_enrollment_combined'] = df['school_enrollment_combined'].apply(lambda x: min(x, 100) if pd.notna(x) else x)
+            st.info("Capped 'school_enrollment_combined' values greater than 100 to 100.")
+        # --- End Data Cleaning ---
+        
+        # Data validation
+        schema = create_data_schema()
+        try:
+            validated_df = schema.validate(df, lazy=True)
+            return validated_df, None
+        except pa.errors.SchemaErrors as err:
+            error_msg = "Data validation errors detected:\n"
+            for failure in err.failure_cases.to_dict(orient='records'):
+                error_msg += f"- Column '{failure['column']}': {failure['failure_case']} (Row {failure['index']})\n"
+            return None, error_msg
     except Exception as e:
-        st.error(f"Error loading data: {e}")
+        return None, f"Error loading data: {str(e)}"
+
+# --- Export Functions ---
+def export_data(df, format_type="csv"):
+    """Export data to CSV or Excel"""
+    try:
+        if format_type == "csv":
+            return df.to_csv(index=False).encode('utf-8')
+        elif format_type == "excel":
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                df.to_excel(writer, index=False)
+            return output.getvalue()
+    except Exception as e:
+        st.error(f"Export failed: {str(e)}")
         return None
 
-uploaded_file = st.sidebar.file_uploader(" 📤  Upload Life Expectancy Data (CSV/XLSX)", type=["csv", "xlsx"])
+def export_figure(fig, format_type="png"):
+    """Export plotly figure to image"""
+    try:
+        # Requires 'kaleido' package: pip install kaleido
+        if format_type == "png":
+            return fig.to_image(format="png")
+        elif format_type == "svg":
+            return fig.to_image(format="svg")
+    except Exception as e:
+        st.error(f"Figure export failed: {str(e)}. Make sure 'kaleido' is installed for image export.")
+        return None
+
+# --- UI for Export Options ---
+def show_export_options(export_name, data=None, figure=None):
+    """Show export options for data or figures"""
+    with st.expander(f"📤 Export {export_name}"):
+        cols = st.columns(2)
+        if data is not None:
+            with cols[0]:
+                csv_data = export_data(data, "csv")
+                if csv_data:
+                    st.download_button(
+                        label="Download as CSV",
+                        data=csv_data,
+                        file_name=f"{export_name.replace(' ', '_')}.csv",
+                        mime="text/csv"
+                    )
+            with cols[1]:
+                excel_data = export_data(data, "excel")
+                if excel_data:
+                    st.download_button(
+                        label="Download as Excel",
+                        data=excel_data,
+                        file_name=f"{export_name.replace(' ', '_')}.xlsx",
+                        mime="application/vnd.ms-excel"
+                    )
+        
+        cols_fig = st.columns(2)
+        if figure is not None:
+            with cols_fig[0]:
+                png_data = export_figure(figure, "png")
+                if png_data:
+                    st.download_button(
+                        label="Download as PNG",
+                        data=png_data,
+                        file_name=f"{export_name.replace(' ', '_')}.png",
+                        mime="image/png"
+                    )
+            with cols_fig[1]:
+                svg_data = export_figure(figure, "svg")
+                if svg_data:
+                    st.download_button(
+                        label="Download as SVG",
+                        data=svg_data,
+                        file_name=f"{export_name.replace(' ', '_')}.svg",
+                        mime="image/svg+xml"
+                    )
+
+# --- Bootstrap Confidence Intervals ---
+def bootstrap_confidence_intervals(model, X_train_original, y_train_original, X_predict, n_bootstraps=100, alpha=0.95):
+    """
+    Calculate bootstrap confidence intervals for model predictions on new data.
+    Resamples from the original training data to refit the model.
+    """
+    try:
+        predictions_on_new_data = []
+        n_samples_train = len(X_train_original)
+        
+        # Use a Streamlit spinner for progress
+        with st.spinner(f"Bootstrapping {n_bootstraps} iterations..."):
+            for i in range(n_bootstraps):
+                # Resample original training data with replacement
+                indices = np.random.choice(n_samples_train, n_samples_train, replace=True)
+                X_resampled = X_train_original.iloc[indices] if isinstance(X_train_original, pd.DataFrame) else X_train_original[indices]
+                y_resampled = y_train_original.iloc[indices] if isinstance(y_train_original, pd.Series) else y_train_original[indices]
+                
+                # Clone and refit model
+                cloned_model = deepcopy(model) # Use deepcopy for robust cloning
+                cloned_model.fit(X_resampled, y_resampled)
+                
+                # Store predictions on the *new* data (X_predict)
+                predictions_on_new_data.append(cloned_model.predict(X_predict))
+        
+        predictions_on_new_data = np.array(predictions_on_new_data)
+        
+        # Calculate confidence intervals
+        lower = np.percentile(predictions_on_new_data, (1 - alpha) / 2 * 100, axis=0) # e.g., 2.5 for 95% CI
+        upper = np.percentile(predictions_on_new_data, (1 + alpha) / 2 * 100, axis=0) # e.g., 97.5 for 95% CI
+        
+        return lower, upper
+    except Exception as e:
+        st.error(f"Bootstrap failed: {str(e)}")
+        return None, None
+
+# --- Model Comparison Function ---
+@st.cache_data(show_spinner=False)
+def compare_models(X_train, y_train, X_test, y_test, _models_dict): # Changed models_dict to _models_dict
+    """Compare multiple models and return results"""
+    results = {}
+    total_models = len(_models_dict) # Use _models_dict here
+    
+    for i, (name, model) in enumerate(_models_dict.items()): # Use _models_dict here
+        st.write(f"Training {name}...")
+        try:
+            # Train model
+            model.fit(X_train, y_train)
+            
+            # Make predictions
+            y_pred = model.predict(X_test)
+            
+            # Calculate metrics
+            mse = mean_squared_error(y_test, y_pred)
+            r2 = r2_score(y_test, y_pred)
+            
+            # Store results
+            results[name] = {
+                "model": model,
+                "mse": mse,
+                "r2": r2,
+                "predictions": y_pred
+            }
+        except Exception as e:
+            st.error(f"Error training {name} model: {str(e)}")
+    
+    return results
+
+# --- Main Application Logic ---
+uploaded_file = st.sidebar.file_uploader("  📤   Upload Life Expectancy Data (CSV/XLSX)", type=["csv", "xlsx"])
 df = None
+validation_error = None
+
 if uploaded_file is not None:
-    with st.spinner(' 🔍  Analyzing data...'):
-        df = load_data(uploaded_file)
+    with st.spinner('  🔍   Validating and processing data...'):
+        df, validation_error = load_and_validate_data(uploaded_file)
+        
+        if validation_error:
+            st.error(validation_error)
+            st.stop() # Stop execution if validation fails
+            
         if df is not None:
             REQUIRED_COLUMNS = ['life_expectancy', 'country_name', 'year']
             missing = [col for col in REQUIRED_COLUMNS if col not in df.columns]
             if missing:
                 st.error(f"Missing required columns for analysis: {', '.join(missing)}. Please upload a dataset containing these columns.")
                 st.stop() 
-            st.success(" ✅  Data loaded successfully!")
+                
+            st.success("  ✅   Data loaded and validated successfully!")
             
             # Display metrics
             cols = st.columns(4)
@@ -394,10 +589,11 @@ if uploaded_file is not None:
             st.info("Uploaded file could not be processed. Please check the file format or its content.")
 else:
     if 'initial_load' not in st.session_state or not st.session_state.initial_load:
-        st.info(" ℹ️  Please upload a dataset to begin analysis.")
+        st.info("  ℹ️   Please upload a dataset to begin analysis.")
 
 filtered_df = pd.DataFrame(columns=df.columns) if df is not None else pd.DataFrame()
 selected_countries = []
+
 if df is not None:
     # --- Data Processing ---
     if 'life_expectancy' in df.columns:
@@ -409,7 +605,7 @@ if df is not None:
     df.dropna(subset=['country_name'], inplace=True)
 
     # --- Sidebar Filters ---
-    st.sidebar.header(" 🔍  Data Filters")
+    st.sidebar.header("  🔍   Data Filters")
     years = sorted(df['year'].unique())
     selected_years = []
     if len(years) > 0:
@@ -467,12 +663,12 @@ if df is not None:
     # --- Conditional Display of Tabs ---
     if not filtered_df.empty:
         tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-            " 📊  Overview",
-            " 📈  Relationships",
-            " 🗺️  Geographic",
-            " 🔍  Deep Analysis",
-            " 💡  Recommendations",
-            " 🧠  Advanced Analytics"
+            "  📊   Overview",
+            "  📈   Relationships",
+            "  🗺️   Geographic",
+            "  🔍   Deep Analysis",
+            "  💡   Recommendations",
+            "  🧠   Advanced Analytics"
         ])
 
         with tab1:
@@ -491,7 +687,7 @@ if df is not None:
                 if 'school_enrollment_combined' in num_cols_filtered:
                     st.metric("School Enrollment", f"{filtered_df['school_enrollment_combined'].mean():.1f}%")
             
-            with st.expander(" 📋  Summary Statistics"):
+            with st.expander("  📋   Summary Statistics"):
                 st.write(filtered_df.describe())
 
             if 'year' in filtered_df.columns and 'life_expectancy' in filtered_df.columns:
@@ -499,38 +695,48 @@ if df is not None:
                 if len(filtered_df['country_name'].unique()) == 1:
                     country = filtered_df['country_name'].iloc[0]
                     country_time_series_df = df[df['country_name'] == country].set_index('year')['life_expectancy'].sort_index()
-                    if len(country_time_series_df) > 2:
-                        plt.style.use('seaborn-v0_8-darkgrid')
-                        decomposition = seasonal_decompose(country_time_series_df, model='additive', period=1)
-                        fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(14, 12), sharex=True)
-                        fig.patch.set_facecolor('#0A0E17')
-                        ax1.set_facecolor('#141A29')
-                        ax2.set_facecolor('#141A29')
-                        ax3.set_facecolor('#141A29')
-                        ax1.plot(decomposition.trend, color='#4A8BFF', linewidth=2)
-                        ax1.set_title('Trend Component', fontsize=16, color='#FFFFFF')
-                        ax1.set_ylabel('Life Expectancy', fontsize=12, color='#E0E0E0')
-                        ax1.tick_params(axis='x', colors='#9DB5CE')
-                        ax1.tick_params(axis='y', colors='#9DB5CE')
-                        ax1.grid(True, linestyle='--', alpha=0.3, color='#5A7CA3')
-                        ax2.plot(decomposition.seasonal, color='#2ECC71', linewidth=1.5)
-                        ax2.set_title('Seasonal Component', fontsize=16, color='#FFFFFF')
-                        ax2.set_ylabel('Seasonality', fontsize=12, color='#E0E0E0')
-                        ax2.tick_params(axis='x', colors='#9DB5CE')
-                        ax2.tick_params(axis='y', colors='#9DB5CE')
-                        ax2.grid(True, linestyle='--', alpha=0.3, color='#5A7CA3')
-                        ax3.plot(decomposition.resid, color='#FF7E5F', linewidth=1)
-                        ax3.set_title('Residuals Component', fontsize=16, color='#FFFFFF')
-                        ax3.set_xlabel('Year', fontsize=12, color='#E0E0E0')
-                        ax3.set_ylabel('Residual', fontsize=12, color='#E0E0E0')
-                        ax3.tick_params(axis='x', colors='#9DB5CE')
-                        ax3.tick_params(axis='y', colors='#9DB5CE')
-                        ax3.grid(True, linestyle='--', alpha=0.3, color='#5A7CA3')
-                        fig.suptitle(f'Time Series Decomposition for {country.title()} Life Expectancy', 
-                                     fontsize=20, color='#FFFFFF')
-                        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-                        st.pyplot(fig)
-                        plt.close(fig)
+                    
+                    # Filter out years with NaN life_expectancy before decomposition
+                    country_time_series_df = country_time_series_df.dropna()
+
+                    if len(country_time_series_df) > 2: # Seasonal decompose needs at least 2 periods
+                        # Determine period: if data is annual, period=1 is fine for trend/residual.
+                        # If sub-annual, this would need to be adjusted. Assuming annual data.
+                        period_val = 1 
+                        if len(country_time_series_df) > 2 * period_val: # Ensure enough data points for decomposition
+                            plt.style.use('seaborn-v0_8-darkgrid')
+                            decomposition = seasonal_decompose(country_time_series_df, model='additive', period=period_val)
+                            fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(14, 12), sharex=True)
+                            fig.patch.set_facecolor('#0A0E17')
+                            ax1.set_facecolor('#141A29')
+                            ax2.set_facecolor('#141A29')
+                            ax3.set_facecolor('#141A29')
+                            ax1.plot(decomposition.trend, color='#4A8BFF', linewidth=2)
+                            ax1.set_title('Trend Component', fontsize=16, color='#FFFFFF')
+                            ax1.set_ylabel('Life Expectancy', fontsize=12, color='#E0E0E0')
+                            ax1.tick_params(axis='x', colors='#9DB5CE')
+                            ax1.tick_params(axis='y', colors='#9DB5CE')
+                            ax1.grid(True, linestyle='--', alpha=0.3, color='#5A7CA3')
+                            ax2.plot(decomposition.seasonal, color='#2ECC71', linewidth=1.5)
+                            ax2.set_title('Seasonal Component', fontsize=16, color='#FFFFFF')
+                            ax2.set_ylabel('Seasonality', fontsize=12, color='#E0E0E0')
+                            ax2.tick_params(axis='x', colors='#9DB5CE')
+                            ax2.tick_params(axis='y', colors='#9DB5CE')
+                            ax2.grid(True, linestyle='--', alpha=0.3, color='#5A7CA3')
+                            ax3.plot(decomposition.resid, color='#FF7E5F', linewidth=1)
+                            ax3.set_title('Residuals Component', fontsize=16, color='#FFFFFF')
+                            ax3.set_xlabel('Year', fontsize=12, color='#E0E0E0')
+                            ax3.set_ylabel('Residual', fontsize=12, color='#E0E0E0')
+                            ax3.tick_params(axis='x', colors='#9DB5CE')
+                            ax3.tick_params(axis='y', colors='#9DB5CE')
+                            ax3.grid(True, linestyle='--', alpha=0.3, color='#5A7CA3')
+                            fig.suptitle(f'Time Series Decomposition for {country.title()} Life Expectancy', 
+                                         fontsize=20, color='#FFFFFF')
+                            plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+                            st.pyplot(fig)
+                            plt.close(fig)
+                        else:
+                            st.warning(f"Insufficient data for time series decomposition (requires at least {2*period_val} data points for one country across years).")
                     else:
                         st.warning("Insufficient data for time series decomposition (requires at least 3 data points for one country across years).")
                 else:
@@ -579,6 +785,7 @@ if df is not None:
                     font=dict(color='#E0E0E0')
                 )
                 st.plotly_chart(fig_corr, use_container_width=True)
+                show_export_options("Correlation Matrix", figure=fig_corr) # Export option added
                 
                 corr_unstacked = corr_df.unstack().reset_index()
                 corr_unstacked.columns = ['Var1', 'Var2', 'Correlation']
@@ -603,7 +810,7 @@ if df is not None:
 
         with tab3:
             st.header("Geographic Analysis")
-            with st.expander(" 🔍  Methodology Details"):
+            with st.expander("  🔍   Methodology Details"):
                 st.markdown(f"""
                 **Data Source:** User-uploaded dataset  
                 **Time Period:** {df['year'].min()} - {df['year'].max()}  
@@ -657,6 +864,7 @@ if df is not None:
                         )
                     )
                     st.plotly_chart(fig_map, use_container_width=True)
+                    show_export_options("World Map", figure=fig_map) # Export option added
                 else:
                     st.warning("Could not generate map - missing ISO country codes for selected countries.")
             else:
@@ -698,6 +906,7 @@ if df is not None:
                         hovermode='closest'
                     )
                     st.plotly_chart(fig, use_container_width=True)
+                    show_export_options(f"Life Expectancy vs {feature.replace('_', ' ').title()}", figure=fig) # Export option added
                     
                     if filtered_df[feature].nunique() > 1:
                         try:
@@ -717,6 +926,7 @@ if df is not None:
                                 font=dict(color='#E0E0E0')
                             )
                             st.plotly_chart(fig_box, use_container_width=True)
+                            show_export_options(f"Life Expectancy by {feature.replace('_', ' ').title()} Group", figure=fig_box) # Export option added
                         except Exception as e:
                             st.warning(f"Could not create bins for '{feature}': {e}")
 
@@ -736,6 +946,7 @@ if df is not None:
                     potential_features,
                     default=[pf for pf in ['gdp_per_capita', 'health_expenditure_per_capita', 'school_enrollment_combined', 'mortality_infant', 'access_to_electricity', 'population_growth_rate'] if pf in potential_features]
                 )
+                
                 if selected_model_features:
                     clean_df = filtered_df[[target] + selected_model_features].dropna()
                     
@@ -746,80 +957,175 @@ if df is not None:
                     else: 
                         X_clean = clean_df[selected_model_features]
                         y_clean = clean_df[target]
+                        
                         if len(np.unique(y_clean)) <= 1:
-                            st.warning("Insufficient variation in target values.")
+                            st.warning("Insufficient variation in target values. Cannot train model.")
                         else:
                             scaler = StandardScaler()
                             X_scaled = scaler.fit_transform(X_clean)
                             
                             X_train, X_test, y_train, y_test = train_test_split(X_scaled, y_clean, test_size=0.2, random_state=42)
-
-                            n_samples_train = len(X_train)
-                            min_splits_cv = 5
-                            # Adjusted n_splits_adjusted to ensure it's less than n_samples_train or 2 if n_samples_train is tiny.
-                            n_splits_adjusted = max(2, min(n_samples_train - 1, min_splits_cv)) if n_samples_train > 1 else 1 
-                            # If n_samples_train is 1, n_splits_adjusted becomes 1, so Ridge will be used.
                             
-                            if n_splits_adjusted < 2:
-                                # Fallback to simple Ridge if not enough splits for CV
-                                model = Ridge(alpha=1.0)
-                                model.fit(X_train, y_train)
-                                y_pred = model.predict(X_test)
-                                r2 = r2_score(y_test, y_pred)
-                                mse = mean_squared_error(y_test, y_pred)
-                                st.write(f"**Test Set R-squared:** {r2:.2f}")
-                                st.write(f"**Mean Squared Error:** {mse:.2f}")
-                                
-                                st.session_state['feature_importance'] = pd.DataFrame({
-                                    'Feature': selected_model_features,
-                                    'Coefficient': model.coef_
-                                }).sort_values('Coefficient', key=abs, ascending=False)
-                            else:
-                                alphas = [0.001, 0.01, 0.1, 1, 10, 100]
-                                model = RidgeCV(alphas=alphas, cv=n_splits_adjusted) 
-                                model.fit(X_train, y_train)
-                                
-                                # Removed the separate cross_val_score call.
-                                # Rely on model.best_score_ for internal CV score.
-                                st.write(f"**Best Alpha (Regularization):** {model.alpha_:.4f}")
-                                st.write(f"**Internal CV R-squared:** {model.best_score_:.2f}") 
-                                
-                                y_pred = model.predict(X_test)
-                                r2 = r2_score(y_test, y_pred)
-                                mse = mean_squared_error(y_test, y_pred)
-                                
-                                st.session_state['r2_score'] = r2
-                                st.session_state['feature_importance'] = pd.DataFrame({
-                                    'Feature': selected_model_features,
-                                    'Coefficient': model.coef_
-                                }).sort_values('Coefficient', key=abs, ascending=False)
-                                
-                                st.write(f"**Test Set R-squared:** {r2:.2f}")
-                                st.write(f"**Mean Squared Error:** {mse:.2f}")
-                            
-                            # Store the trained model and scaler in session state
-                            st.session_state['trained_model'] = model
+                            # Store X_train and y_train in session state for bootstrapping
+                            st.session_state['X_train'] = pd.DataFrame(X_train, columns=selected_model_features) # Convert to DataFrame for consistent indexing
+                            st.session_state['y_train'] = y_train
                             st.session_state['scaler'] = scaler
                             st.session_state['model_features'] = selected_model_features
 
-                            st.subheader("Feature Importance (Coefficients)")
-                            st.dataframe(st.session_state['feature_importance'])
-                            fig_feature_imp = px.bar(st.session_state['feature_importance'], 
-                                                    x='Coefficient', y='Feature', orientation='h', 
-                                                    title='Feature Impact on Life Expectancy Prediction',
-                                                    height=600,
-                                                    color_discrete_sequence=px.colors.qualitative.Plotly)
-                            fig_feature_imp.update_layout(
-                                yaxis={'categoryorder':'total ascending'},
-                                template="plotly_dark",
-                                paper_bgcolor='#141A29',
-                                plot_bgcolor='#1A2235',
-                                font=dict(color='#E0E0E0')
-                            )
-                            st.plotly_chart(fig_feature_imp, use_container_width=True)
+                            # Model Type Selection
+                            model_type = st.selectbox("Select Model Type", ["Ridge", "Random Forest", "Compare Models"], key="model_selection_type")
+                            st.session_state.model_type = model_type
+
+                            model = None
+                            feature_importance_df = pd.DataFrame()
+
+                            if model_type == "Ridge":
+                                n_samples_train = len(X_train)
+                                min_splits_cv = 5
+                                n_splits_adjusted = max(2, min(n_samples_train - 1, min_splits_cv)) if n_samples_train > 1 else 1 
+                                
+                                if n_splits_adjusted < 2:
+                                    model = Ridge(alpha=1.0)
+                                    model.fit(X_train, y_train)
+                                    y_pred = model.predict(X_test)
+                                    r2 = r2_score(y_test, y_pred)
+                                    mse = mean_squared_error(y_test, y_pred)
+                                    st.write(f"**Test Set R-squared:** {r2:.2f}")
+                                    st.write(f"**Mean Squared Error:** {mse:.2f}")
+                                    
+                                    feature_importance_df = pd.DataFrame({
+                                        'Feature': selected_model_features,
+                                        'Coefficient': model.coef_
+                                    }).sort_values('Coefficient', key=abs, ascending=False)
+                                else:
+                                    alphas = [0.001, 0.01, 0.1, 1, 10, 100]
+                                    model = RidgeCV(alphas=alphas, cv=n_splits_adjusted) 
+                                    model.fit(X_train, y_train)
+                                    
+                                    st.write(f"**Best Alpha (Regularization):** {model.alpha_:.4f}")
+                                    st.write(f"**Internal CV R-squared:** {model.best_score_:.2f}") 
+                                    
+                                    y_pred = model.predict(X_test)
+                                    r2 = r2_score(y_test, y_pred)
+                                    mse = mean_squared_error(y_test, y_pred)
+                                    
+                                    st.write(f"**Test Set R-squared:** {r2:.2f}")
+                                    st.write(f"**Mean Squared Error:** {mse:.2f}")
+
+                                feature_importance_df = pd.DataFrame({
+                                    'Feature': selected_model_features,
+                                    'Importance': model.coef_ # For Ridge, coefficients are importance
+                                }).sort_values('Importance', key=abs, ascending=False)
+                                
+                            elif model_type == "Random Forest":
+                                n_estimators = st.slider("Number of Trees", 10, 500, 100, key="rf_n_estimators")
+                                max_depth = st.slider("Max Depth", 1, 20, 5, key="rf_max_depth")
+                                
+                                model = RandomForestRegressor(
+                                    n_estimators=n_estimators,
+                                    max_depth=max_depth,
+                                    random_state=42
+                                )
+                                
+                                with st.spinner('Training Random Forest model...'):
+                                    model.fit(X_train, y_train)
+                                    y_pred = model.predict(X_test)
+                                    r2 = r2_score(y_test, y_pred)
+                                    mse = mean_squared_error(y_test, y_pred)
+                                    
+                                    st.write(f"**Test Set R-squared:** {r2:.2f}")
+                                    st.write(f"**Mean Squared Error:** {mse:.2f}")
+                                    
+                                    feature_importance_df = pd.DataFrame({
+                                        'Feature': selected_model_features,
+                                        'Importance': model.feature_importances_
+                                    }).sort_values('Importance', ascending=False)
+                                    
+                            elif model_type == "Compare Models":
+                                st.subheader("Model Comparison: Ridge vs Random Forest")
+                                # Define models to compare
+                                alphas = [0.001, 0.01, 0.1, 1, 10, 100]
+                                models_to_compare = {
+                                    "Ridge Regression": RidgeCV(alphas=alphas, cv=min(len(X_train)-1, 5) if len(X_train) > 1 else 1), # Ensure cv is valid
+                                    "Random Forest": RandomForestRegressor(n_estimators=100, max_depth=5, random_state=42)
+                                }
+                                
+                                with st.spinner('Comparing models...'):
+                                    comparison_results = compare_models(X_train, y_train, X_test, y_test, models_to_compare)
+                                    
+                                    # Display comparison results
+                                    comparison_data = []
+                                    for name, res in comparison_results.items():
+                                        comparison_data.append({'Model': name, 'R-squared': res['r2'], 'MSE': res['mse']})
+                                    comparison_df = pd.DataFrame(comparison_data)
+                                    
+                                    st.dataframe(comparison_df.style.format({'R-squared': '{:.3f}', 'MSE': '{:.3f}'}))
+                                    
+                                    # Visual comparison
+                                    fig_comparison = px.bar(
+                                        comparison_df,
+                                        x='Model',
+                                        y='R-squared',
+                                        color='Model',
+                                        title='Model Comparison by R-squared',
+                                        labels={'R-squared': 'R-squared Score'},
+                                        color_discrete_sequence=px.colors.qualitative.Plotly
+                                    )
+                                    fig_comparison.update_layout(
+                                        template="plotly_dark",
+                                        paper_bgcolor='#141A29',
+                                        plot_bgcolor='#1A2235',
+                                        font=dict(color='#E0E0E0')
+                                    )
+                                    st.plotly_chart(fig_comparison, use_container_width=True)
+                                    show_export_options("Model Comparison", data=comparison_df, figure=fig_comparison)
+                                    
+                                    # Let user select the best model based on R-squared
+                                    if comparison_results:
+                                        best_model_name = max(comparison_results, key=lambda k: comparison_results[k]['r2'])
+                                        model = comparison_results[best_model_name]['model'] # Set the best model
+                                        st.success(f"Best model: **{best_model_name}** (R²: {comparison_results[best_model_name]['r2']:.3f})")
+                                        
+                                        # Update feature importance based on the best model type
+                                        if best_model_name == "Ridge Regression":
+                                            feature_importance_df = pd.DataFrame({
+                                                'Feature': selected_model_features,
+                                                'Importance': model.coef_
+                                            }).sort_values('Importance', key=abs, ascending=False)
+                                        elif best_model_name == "Random Forest":
+                                            feature_importance_df = pd.DataFrame({
+                                                'Feature': selected_model_features,
+                                                'Importance': model.feature_importances_
+                                            }).sort_values('Importance', ascending=False)
+                                    else:
+                                        st.warning("No models were successfully compared.")
+                            
+                            # Store the trained model and feature importance in session state
+                            st.session_state['trained_model'] = model
+                            st.session_state['feature_importance'] = feature_importance_df
+                            
+                            if not feature_importance_df.empty:
+                                st.subheader("Feature Importance")
+                                st.dataframe(feature_importance_df)
+                                fig_feature_imp = px.bar(feature_importance_df, 
+                                                        x='Importance', y='Feature', orientation='h', 
+                                                        title='Feature Impact on Life Expectancy Prediction',
+                                                        height=600,
+                                                        color_discrete_sequence=px.colors.qualitative.Plotly)
+                                fig_feature_imp.update_layout(
+                                    yaxis={'categoryorder':'total ascending'},
+                                    template="plotly_dark",
+                                    paper_bgcolor='#141A29',
+                                    plot_bgcolor='#1A2235',
+                                    font=dict(color='#E0E0E0')
+                                )
+                                st.plotly_chart(fig_feature_imp, use_container_width=True)
+                                show_export_options("Feature Importance", data=feature_importance_df, figure=fig_feature_imp) # Export option added
+                            else:
+                                st.info("Feature importance not available for this model type or no model trained.")
                 else:
                     st.info("Select features to build a predictive model.")
-            
+
             st.subheader("Multi-dimensional Data Relationships")
             st.markdown("Visualize patterns across multiple features.")
             parallel_coord_cols_options = [col for col in num_cols_filtered if col != 'year']
@@ -866,7 +1172,7 @@ if df is not None:
                             }
                             
                             if col == 'life_expectancy':
-                                dim_config["range"] = [40, 90]
+                                dim_config["range"] = [40, 90] # Fixed range for life expectancy for better comparability
                             
                             dimensions.append(dim_config)
                     
@@ -892,6 +1198,7 @@ if df is not None:
                             margin=dict(l=80, r=80, t=80, b=80)
                         )
                         st.plotly_chart(fig_par_coords, use_container_width=True)
+                        show_export_options("Parallel Coordinates", figure=fig_par_coords) # Export option added
                     else:
                         st.info("Not enough dimensions to plot")
                 else:
@@ -968,6 +1275,7 @@ if df is not None:
                         st.dataframe(gap_df.style.background_gradient(cmap='RdYlGn', 
                                                                       subset=['life_expectancy_gap', 'gdp_gap_percent', 'health_exp_gap_percent', 'education_gap'], 
                                                                       axis=0))
+                        show_export_options("Country Comparison Gap Analysis", data=gap_df) # Export option added
                     else:
                         st.info("Select a base country to perform gap analysis.")
                 else:
@@ -976,22 +1284,20 @@ if df is not None:
                 st.info("Please ensure data is loaded and filtered to see recommendations.")
         
         with tab6: # New tab for Advanced Analytics
-            st.header(" 🧠  Advanced Analytics: Decision Support")
+            st.header("  🧠   Advanced Analytics: Decision Support")
             st.markdown("""
             This section provides advanced analytical tools for deeper insights and policy decision support.
             Explore predictive scenarios, conduct what-if analyses, and simulate policy impacts.
             """)
-
             # Ensure model and scaler are available
             model = st.session_state.trained_model
             scaler = st.session_state.scaler
             features = st.session_state.model_features
-
+            
             if model is None or scaler is None or not features:
                 st.warning("Please train a predictive model in the 'Deep Analysis' tab first to enable Advanced Analytics.")
             else:
                 st.markdown("---") # Visual separator
-
                 # ========================= #
                 # 1. Predictive Scenarios   #
                 # ========================= #
@@ -1000,7 +1306,6 @@ if df is not None:
                 Project life expectancy trends under different hypothetical GDP growth scenarios.
                 This assumes other factors change linearly based on historical data.
                 """)
-
                 scenario_countries = df['country_name'].unique().tolist()
                 selected_scenario_country = st.selectbox("Select Country for Projection", scenario_countries, key="proj_country")
                 
@@ -1021,7 +1326,9 @@ if df is not None:
                             key="proj_gdp_growth"
                         )
                         
-                        def predict_future(country, base_year, projection_years, gdp_growth_rates, model, features, df, scaler):
+                        include_ci = st.checkbox("Include confidence intervals (slower)", key="ci_checkbox")
+
+                        def predict_future(country, base_year, projection_years, gdp_growth_rates, model, features, df, scaler, include_ci, X_train_original, y_train_original):
                             """Project life expectancy under different GDP growth scenarios"""
                             baseline_country_data = df[df['country_name'] == country].sort_values('year')
                             if baseline_country_data.empty or base_year not in baseline_country_data['year'].values:
@@ -1035,8 +1342,13 @@ if df is not None:
                             for feature in features:
                                 if feature != 'gdp_per_capita' and feature in baseline_country_data.columns:
                                     if len(baseline_country_data[feature].dropna()) >= 2:
-                                        hist_trend = baseline_country_data[feature].pct_change().mean()
-                                        hist_trends[feature] = hist_trend if not np.isnan(hist_trend) else 0.0
+                                        # Calculate average percentage change, avoid division by zero
+                                        non_nan_values = baseline_country_data[feature].dropna()
+                                        if len(non_nan_values) > 1 and non_nan_values.iloc[0] != 0:
+                                            hist_trend = (non_nan_values.iloc[-1] / non_nan_values.iloc[0])**(1/(len(non_nan_values)-1)) - 1 if len(non_nan_values) > 1 else 0.0
+                                            hist_trends[feature] = hist_trend if not np.isnan(hist_trend) else 0.0
+                                        else:
+                                            hist_trends[feature] = 0.0
                                     else:
                                         hist_trends[feature] = 0.0
 
@@ -1044,12 +1356,14 @@ if df is not None:
                                 growth_rate = gdp_growth_options[growth_label]
                                 current_scenario_rows = [] # Stores rows (as DataFrames) for the current growth scenario
                                 
-                                # Convert the initial Series (last_data) to a DataFrame before assigning 'gdp_growth'
-                                initial_row_df = pd.DataFrame([last_data.to_dict()])
-                                current_scenario_rows.append(initial_row_df.assign(gdp_growth=growth_label))
-
                                 current_data_series = last_data.copy() # Keep as Series for modification in the loop
                                 
+                                # Add baseline year data to the projection
+                                initial_row_df = pd.DataFrame([last_data.to_dict()])
+                                current_scenario_rows.append(initial_row_df.assign(gdp_growth=growth_label, 
+                                                                                    Lower_Bound=last_data['life_expectancy'], 
+                                                                                    Upper_Bound=last_data['life_expectancy']))
+
                                 for year in range(base_year + 1, base_year + projection_years + 1):
                                     projection_series = current_data_series.copy()
                                     projection_series['year'] = year
@@ -1067,7 +1381,27 @@ if df is not None:
                                     X_proj_df = pd.DataFrame([projection_series[features]]) # This correctly converts for prediction
                                     X_proj_scaled = scaler.transform(X_proj_df)
                                     
-                                    projection_series['life_expectancy'] = model.predict(X_proj_scaled)[0]
+                                    predicted_le = model.predict(X_proj_scaled)[0]
+                                    projection_series['life_expectancy'] = predicted_le
+
+                                    # Calculate confidence intervals if requested
+                                    if include_ci and X_train_original is not None and y_train_original is not None:
+                                        lower_bound_ci, upper_bound_ci = bootstrap_confidence_intervals(
+                                            model, 
+                                            X_train_original, 
+                                            y_train_original, 
+                                            X_proj_scaled, 
+                                            n_bootstraps=50 # Reduced for faster demo, can be increased
+                                        )
+                                        if lower_bound_ci is not None and upper_bound_ci is not None:
+                                            projection_series['Lower_Bound'] = lower_bound_ci[0]
+                                            projection_series['Upper_Bound'] = upper_bound_ci[0]
+                                        else:
+                                            projection_series['Lower_Bound'] = predicted_le
+                                            projection_series['Upper_Bound'] = predicted_le
+                                    else:
+                                        projection_series['Lower_Bound'] = predicted_le
+                                        projection_series['Upper_Bound'] = predicted_le
                                     
                                     # Convert the projection Series to a DataFrame before assigning 'gdp_growth'
                                     current_scenario_rows.append(pd.DataFrame([projection_series.to_dict()]).assign(gdp_growth=growth_label))
@@ -1089,7 +1423,10 @@ if df is not None:
                                     model,
                                     features,
                                     df, # Pass original df for historical trends
-                                    scaler
+                                    scaler,
+                                    include_ci,
+                                    st.session_state.X_train, # Pass X_train from session state
+                                    st.session_state.y_train  # Pass y_train from session state
                                 )
                                 if not projections_df.empty:
                                     fig_proj = px.line(
@@ -1102,6 +1439,30 @@ if df is not None:
                                         markers=True,
                                         color_discrete_sequence=px.colors.qualitative.Plotly
                                     )
+                                    
+                                    # Add confidence intervals to plot if requested
+                                    if include_ci and 'Lower_Bound' in projections_df.columns and 'Upper_Bound' in projections_df.columns:
+                                        for growth_label in selected_gdp_growths:
+                                            scenario_df = projections_df[projections_df['gdp_growth'] == growth_label]
+                                            fig_proj.add_trace(go.Scatter(
+                                                x=scenario_df['year'],
+                                                y=scenario_df['Lower_Bound'],
+                                                mode='lines',
+                                                line=dict(width=0),
+                                                showlegend=False,
+                                                name=f'{growth_label} Lower Bound'
+                                            ))
+                                            fig_proj.add_trace(go.Scatter(
+                                                x=scenario_df['year'],
+                                                y=scenario_df['Upper_Bound'],
+                                                mode='lines',
+                                                line=dict(width=0),
+                                                fill='tonexty', # Fill area between traces
+                                                fillcolor=px.colors.qualitative.Plotly[list(gdp_growth_options.keys()).index(growth_label)] + '33', # Lighter fill
+                                                showlegend=False,
+                                                name=f'{growth_label} Upper Bound'
+                                            ))
+
                                     fig_proj.update_layout(
                                         template="plotly_dark",
                                         paper_bgcolor='#141A29',
@@ -1109,6 +1470,7 @@ if df is not None:
                                         font=dict(color='#E0E0E0')
                                     )
                                     st.plotly_chart(fig_proj, use_container_width=True)
+                                    show_export_options("Life Expectancy Projections", data=projections_df, figure=fig_proj) # Export option added
                                 else:
                                     st.warning("No projections could be generated for the selected country and year. Ensure data exists for the base year.")
                     else:
@@ -1117,7 +1479,6 @@ if df is not None:
                     st.info("Select a country to generate projections.")
                 
                 st.markdown("---") # Visual separator
-
                 # =================== #
                 # 2. What-If Analysis #
                 # =================== #
@@ -1125,10 +1486,8 @@ if df is not None:
                 st.markdown("""
                 Simulate the immediate impact of changes in a single key factor on life expectancy for a specific country and year.
                 """)
-
                 whatif_country_options = df['country_name'].unique().tolist()
                 selected_whatif_country = st.selectbox("Select Country for What-If", whatif_country_options, key="whatif_country")
-
                 if selected_whatif_country:
                     whatif_year_options = sorted(df[df['country_name'] == selected_whatif_country]['year'].unique().tolist(), reverse=True)
                     if whatif_year_options:
@@ -1146,10 +1505,8 @@ if df is not None:
                     if not baseline_data_row.empty:
                         baseline_data_row = baseline_data_row.iloc[0]
                         baseline_le = baseline_data_row['life_expectancy']
-
                         whatif_feature_options = [f for f in features if f != 'life_expectancy']
                         selected_whatif_feature = st.selectbox("Choose Feature for Intervention", whatif_feature_options, key="whatif_feature")
-
                         if selected_whatif_feature:
                             current_feature_value = baseline_data_row[selected_whatif_feature]
                             if pd.isna(current_feature_value):
@@ -1162,7 +1519,6 @@ if df is not None:
                                     ("Percentage Change", "Absolute Change"),
                                     key="whatif_change_type"
                                 )
-
                                 new_value = None
                                 if value_change_type == "Percentage Change":
                                     percentage_change = st.slider("Percentage Change (%)", -50, 50, 10, key="whatif_perc_change")
@@ -1172,10 +1528,10 @@ if df is not None:
                                     feature_min = df[selected_whatif_feature].min()
                                     feature_max = df[selected_whatif_feature].max()
                                     # Ensure the slider value is within reasonable bounds for absolute change
-                                    abs_change_default = (feature_max - feature_min) * 0.05 # 5% of range as default step
+                                    abs_change_default = (feature_max - min_val) * 0.05 if (feature_max - min_val) > 0 else 1.0 # 5% of range as default step
                                     abs_change = st.number_input(
                                         "Absolute Change",
-                                        value=abs_change_default if abs_change_default != 0 else 1.0,
+                                        value=float(abs_change_default),
                                         min_value=float(feature_min - current_feature_value),
                                         max_value=float(feature_max - current_feature_value),
                                         step=(feature_max - feature_min) * 0.01 if (feature_max - feature_min) * 0.01 != 0 else 0.1,
@@ -1187,15 +1543,12 @@ if df is not None:
                                 if st.button("Simulate What-If", key="simulate_whatif"):
                                     scenario_data = baseline_data_row[features].copy()
                                     scenario_data[selected_whatif_feature] = new_value
-
                                     X_scenario_scaled = scaler.transform(pd.DataFrame([scenario_data]))
                                     predicted_le = model.predict(X_scenario_scaled)[0]
-
                                     st.markdown(f"**Scenario Result for {selected_whatif_country.title()} in {selected_whatif_year}:**")
                                     st.write(f"Baseline Life Expectancy: **{baseline_le:.2f} years**")
                                     st.write(f"Predicted Life Expectancy with modified {selected_whatif_feature.replace('_', ' ').title()} ({new_value:,.2f}): **{predicted_le:.2f} years**")
                                     st.write(f"Change: **{(predicted_le - baseline_le):.2f} years**")
-
                                     # Plot comparison
                                     comparison_df = pd.DataFrame({
                                         'Scenario': ['Baseline', 'Modified'],
@@ -1217,6 +1570,7 @@ if df is not None:
                                         yaxis_range=[min(baseline_le, predicted_le) * 0.95, max(baseline_le, predicted_le) * 1.05]
                                     )
                                     st.plotly_chart(fig_whatif, use_container_width=True)
+                                    show_export_options("What-If Simulation Impact", data=comparison_df, figure=fig_whatif) # Export option added
                         else:
                             st.info("Select a feature to perform what-if analysis.")
                     else:
@@ -1225,7 +1579,6 @@ if df is not None:
                     st.info("Select a country and year for what-if analysis.")
                 
                 st.markdown("---") # Visual separator
-
                 # ================================== #
                 # 3. Policy Impact Simulation        #
                 # ================================== #
@@ -1233,10 +1586,8 @@ if df is not None:
                 st.markdown("""
                 Interactively adjust multiple factors and observe the combined effect on predicted life expectancy.
                 """)
-
                 policy_country_options = df['country_name'].unique().tolist()
                 selected_policy_country = st.selectbox("Select Country for Simulation", policy_country_options, key="policy_country")
-
                 if selected_policy_country:
                     policy_year_options = sorted(df[df['country_name'] == selected_policy_country]['year'].unique().tolist(), reverse=True)
                     if policy_year_options:
@@ -1257,7 +1608,6 @@ if df is not None:
                         
                         st.markdown(f"**Baseline Life Expectancy for {selected_policy_country.title()} in {selected_policy_year}: {base_le:.2f} years**")
                         st.markdown("Adjust the sliders below to create your policy scenario:")
-
                         # Create sliders for each feature used in the model
                         current_scenario_features = baseline_policy_data[features].copy()
                         
@@ -1272,7 +1622,6 @@ if df is not None:
                             max_val = df[feat].max()
                             step_val = (max_val - min_val) / 50 if (max_val - min_val) > 0 else 0.1
                             if step_val == 0: step_val = 0.1 # Prevent zero step if min/max are identical
-
                             sliders_values[feat] = st.slider(
                                 f"Modify {feat.replace('_', ' ').title()}",
                                 min_value=float(min_val),
@@ -1288,14 +1637,13 @@ if df is not None:
                             X_modified_scaled = scaler.transform(pd.DataFrame([modified_policy_scenario]))
                             modified_le = model.predict(X_modified_scaled)[0]
                             improvement = modified_le - base_le
-
                             st.markdown(f"**Simulated Life Expectancy: {modified_le:.2f} years**")
                             st.markdown(f"**Projected Change from Baseline: {improvement:.2f} years**")
-
+                            
                             # Plotting feature importance (re-using model.coef_ from session state)
                             if not st.session_state.feature_importance.empty:
                                 fig_feature_imp_sim = px.bar(st.session_state.feature_importance, 
-                                                            x='Coefficient', y='Feature', orientation='h', 
+                                                            x='Importance', y='Feature', orientation='h', 
                                                             title='Feature Importance in Prediction Model',
                                                             height=400,
                                                             color_discrete_sequence=px.colors.qualitative.Plotly)
@@ -1307,6 +1655,7 @@ if df is not None:
                                     font=dict(color='#E0E0E0')
                                 )
                                 st.plotly_chart(fig_feature_imp_sim, use_container_width=True)
+                                show_export_options("Policy Simulation Feature Importance", data=st.session_state.feature_importance, figure=fig_feature_imp_sim) # Export option added
                             else:
                                 st.info("Feature importance data not available. Please train the model in 'Deep Analysis' first.")
 
@@ -1331,11 +1680,11 @@ if df is not None:
                                 yaxis_range=[min(base_le, modified_le) * 0.95, max(base_le, modified_le) * 1.05]
                             )
                             st.plotly_chart(fig_sim_comp, use_container_width=True)
+                            show_export_options("Policy Simulation Comparison", data=comparison_sim_df, figure=fig_sim_comp) # Export option added
                     else:
                         st.warning(f"No complete baseline data for {selected_policy_country} in {selected_policy_year} for the selected features.")
                 else:
                     st.info("Select a country and year for policy impact simulation.")
-
     else:
         if uploaded_file is None:
             st.info("Upload a dataset to unlock all analysis features.")
