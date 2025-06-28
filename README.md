@@ -74,9 +74,8 @@ The analysis and modeling produced several valuable insights and outcomes:
 
 1. **Key Predictive Factors**: The model identified the most important predictors of life expectancy, such as healthcare access, GDP per capita, and air quality.
 2. **Predictive Model Performance**:
-   - **Linear Regression**: Achieved an R² score of 0.75, indicating a strong fit for predicting life expectancy.
+   - **Ridge Regression**: Achieved an R² score of 0.75, indicating a strong fit for predicting life expectancy.
    - **Random Forest Regression**: Achieved an R² score of 0.85, providing better accuracy by capturing non-linear relationships.
-   - **XGBoost**: The best-performing model, achieving an R² score of 0.89 with optimized hyperparameters.
 3. **Global Trends**: Through visualizations, the analysis revealed global life expectancy trends and the disparity between developed and developing countries.
 4. **Visualization Tools**: Interactive charts and dashboards were created to present the findings, enabling users to explore trends by region, year, and country.
 
